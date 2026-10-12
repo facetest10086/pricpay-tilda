@@ -56,7 +56,7 @@ https://你的域名/api/pricpay/notify
 PRICPAY_MERCHANT_NO=你的 merchantNo
 PRICPAY_SECRET=你的签名密钥
 PRICPAY_PUB_ID=你的 pubId
-PRICPAY_MODE=EPP
+PRICPAY_MODE=HPP
 PRICPAY_PAYMENT_METHOD=CardEmbed
 PRICPAY_MERCHANT_WEBSITE=https://你的网关域名
 TILDA_NOTIFY_URL=https://你的Tilda通知地址

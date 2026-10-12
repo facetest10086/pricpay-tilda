@@ -6,7 +6,7 @@ const config = {
   merchantNo: process.env.PRICPAY_MERCHANT_NO ?? '',
   secret: process.env.PRICPAY_SECRET ?? '',
   pubId: process.env.PRICPAY_PUB_ID ?? '',
-  mode: process.env.PRICPAY_MODE ?? 'EPP',
+  mode: process.env.PRICPAY_MODE ?? 'HPP',
   paymentMethodCode: process.env.PRICPAY_PAYMENT_METHOD ?? 'CardEmbed',
   website: process.env.PRICPAY_MERCHANT_WEBSITE ?? '',
   gateway: 'https://gateway.pricpay.com/payment/gateway/payapi/v2/checkout',
@@ -77,9 +77,31 @@ export { value }
 
 export async function createPricpayCheckout(order: TildaOrder, requestUrl: string) {
   const payload = buildPricpayOrder(order, requestUrl)
-  const response = await fetch(config.gateway, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), cache: 'no-store' })
-  const data = await response.json()
-  if (!response.ok || data.code !== 200 || !data.data) throw new Error(data.message || 'PricPay checkout creation failed')
+  const isHpp = config.mode.toUpperCase() === 'HPP'
+  const endpoint = isHpp
+    ? 'https://gateway.pricpay.com/payment/gateway/payapi/cache-merchant-info'
+    : config.gateway
+  const requestPayload = isHpp
+    ? (() => {
+        const { mode, paymentMethodCode, pubId, ...cashierPayload } = payload
+        return { ...cashierPayload, signature: sign(cashierPayload) }
+      })()
+    : payload
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestPayload),
+    cache: 'no-store',
+  })
+  const raw = await response.text()
+  if (!response.ok) throw new Error(`PricPay checkout creation failed (${response.status})`)
+  if (isHpp) {
+    const cashier = raw.trim()
+    if (!cashier) throw new Error('PricPay returned an empty cashier token')
+    return { target: `https://cashier.pricpay.com?cashier=${encodeURIComponent(cashier)}`, orderNo: value(order, 'orderid', 'orderId', 'order_number', 'orderNumber', 'id') }
+  }
+  const data = JSON.parse(raw)
+  if (data.code !== 200 || !data.data) throw new Error(data.message || 'PricPay checkout creation failed')
   const target = data.data.directFlag === 1 && data.data.thirdUrl ? data.data.thirdUrl : `${data.data.shopUrl}?orderFlag=b&orderNo=${encodeURIComponent(data.data.orderNo)}`
   return { target, orderNo: data.data.orderNo }
 }
@@ -88,7 +110,10 @@ export function toTildaNotification(params: Record<string, unknown>, target: str
   return { orderid: order || value(params, 'orderNumber', 'orderNo'), amount: amount || value(params, 'transactionAmount', 'amount'), paid: 'true', signature: sign({ orderid: order, amount, paid: 'true' }), target }
 }
 
-export function isConfigured() { return Boolean(config.merchantNo && config.secret && config.pubId) }
+export function isConfigured() {
+  const commonConfigured = Boolean(config.merchantNo && config.secret)
+  return config.mode.toUpperCase() === 'HPP' ? commonConfigured : Boolean(commonConfigured && config.pubId)
+}
 
 export function parseBody(raw: string, contentType: string): TildaOrder {
   if (contentType.includes('application/json')) return JSON.parse(raw) as TildaOrder
