@@ -29,7 +29,10 @@ function sortedString(params: Record<string, unknown>) {
 }
 
 export function sign(params: Record<string, unknown>) {
-  return crypto.createHash('md5').update(`${sortedString(params)}secret=${config.secret.trim()}`).digest('hex').toUpperCase()
+  console.info('[pricpay:sign] signing parameters', { keys: Object.keys(params).sort(), orderNumber: params.orderNumber, amount: params.transactionAmount ?? params.amount })
+  const signature = crypto.createHash('md5').update(`${sortedString(params)}secret=${config.secret.trim()}`).digest('hex').toUpperCase()
+  console.info('[pricpay:sign] signature generated', { signatureLength: signature.length })
+  return signature
 }
 
 export function verifySignature(params: Record<string, unknown>) {
