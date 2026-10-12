@@ -38,7 +38,8 @@ export function verifySignature(params: Record<string, unknown>) {
   const copy = { ...params }
   delete copy.signature
   delete copy.sign
-  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(sign(copy)))
+  const expected = sign(copy)
+  return supplied.length === expected.length && crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
 }
 
 function productInformation(order: TildaOrder) {
