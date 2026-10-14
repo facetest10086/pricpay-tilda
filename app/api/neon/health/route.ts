@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { recordGatewayEvent } from '@/lib/gateway-log'
+import { getGatewayLogCounts, recordGatewayEvent } from '@/lib/gateway-log'
 
 export const runtime = 'nodejs'
 
@@ -14,6 +14,8 @@ function isAuthorized(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const url = new URL(request.url)
+
   if (!isAuthorized(request)) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
@@ -29,6 +31,11 @@ export async function GET(request: Request) {
 
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error, skipped: result.skipped ?? false }, { status: 500 })
+  }
+
+  if (url.searchParams.get('details') === '1') {
+    const counts = await getGatewayLogCounts()
+    return NextResponse.json({ ok: true, service: 'neon-postgres', counts })
   }
 
   return NextResponse.json({ ok: true, service: 'neon-postgres' })

@@ -1,17 +1,47 @@
 # Tilda PricPay 支付网关
 
-这是一个**纯后端支付网关**，没有前端页面。它接收 Tilda 的订单数据，调用 PricPay 创单接口，并把支付跳转地址返回给 Tilda。
+这是一个 Next.js 后端支付网关，用于把 Tilda 独立站订单转成 PricPay 订单，并处理 PricPay 的同步跳转和异步通知。
 
 ## 接口
 
-### 1. 创建订单
+### 普通创单
 
 ```text
 POST /api/pricpay/create
-Content-Type: application/json
 ```
 
-请求体至少包含：
+对应 PricPay `v2/checkout` 创单文档。该接口需要 `PRICPAY_PUB_ID`。
+
+### 收银台创单
+
+```text
+POST /api/pricpay/cashier
+```
+
+对应 PricPay `cache-merchant-info` 收银台文档。该接口返回 PricPay cashier 跳转地址，不需要 `PRICPAY_PUB_ID`。
+
+### 异步通知
+
+```text
+POST /api/pricpay/notify
+```
+
+PricPay 支付通知地址。网关会：
+
+- 校验 PricPay 签名。
+- 保存通知原始参数到 Neon Postgres。
+- 仅在 `orderStatus=100` 时把支付成功通知转发给 Tilda。
+- 对 PricPay 返回纯文本 `ok`。
+
+### 同步跳转
+
+```text
+GET /api/pricpay/return
+```
+
+用户从 PricPay 返回时进入该接口。网关会按 PricPay 返回状态或数据库订单状态跳转到 Tilda 的成功、失败或处理中页面。最终订单状态仍以异步通知为准。
+
+## 请求示例
 
 ```json
 {
@@ -19,13 +49,13 @@ Content-Type: application/json
   "amount": "38.59",
   "currency": "USD",
   "email": "customer@example.com",
-  "name": "John Doe"
+  "notifyUrl": "https://example.tilda.ws/payment/custom/notify",
+  "successUrl": "https://example.tilda.ws/payment-success",
+  "failUrl": "https://example.tilda.ws/payment-fail"
 }
 ```
 
-也支持 `application/x-www-form-urlencoded`。金额、订单号和邮箱会映射到 PricPay 参数；`products`、`items` 或 `productInformation` 可用于传递商品信息。
-
-成功响应：
+成功创单响应：
 
 ```json
 {
@@ -36,55 +66,87 @@ Content-Type: application/json
 }
 ```
 
-让 Tilda 将用户重定向到 `redirectUrl`（或 `target`）。`target` 已按 PricPay 文档处理 `directFlag`。
+## 日志和数据库
 
-### 2. PricPay 异步通知
+当前方案使用 Neon Postgres，不需要创建 Neon Object Storage bucket。原因是网关日志主要是结构化请求/响应/状态数据，用 Postgres JSONB 更容易按订单号、事件类型和时间查询。
 
-PricPay 通知地址固定为：
+表结构在 `db/schema.sql`：
 
-```text
-https://你的域名/api/pricpay/notify
+- `gateway_orders`：订单主表，保存 Tilda 订单号、PricPay 订单号、金额、Tilda 回调/跳转 URL、当前状态。
+- `gateway_events`：事件日志，保存 Tilda 入参、PricPay 请求参数、签名排序串、签名结果、跳转地址、错误信息。
+- `payment_notifications`：PricPay 异步通知记录，保存原始通知、签名校验结果、是否已转发给 Tilda。
+
+本地应用 schema：
+
+```bash
+npm run db:schema
 ```
 
-网关会校验 PricPay MD5 签名，然后把 `paid=true`、订单号和金额以表单 POST 转发到 Tilda 的 `notifyUrl`。在创建订单时传入 `notifyUrl`，或配置 `TILDA_NOTIFY_URL`。
+如果本机到 Neon HTTP SQL endpoint 超时，可用 Neon CLI psql 通道：
+
+```bash
+neon psql production -- -f db/schema.sql
+```
 
 ## 环境变量
 
-在 Vercel 项目 Settings → Vars 中配置：
+Vercel 生产环境至少需要：
 
 ```text
+DATABASE_URL=Neon pooled connection string
+DATABASE_URL_UNPOOLED=Neon unpooled connection string
 PRICPAY_MERCHANT_NO=你的 merchantNo
-PRICPAY_SECRET=你的签名密钥
-PRICPAY_PUB_ID=你的 pubId
-PRICPAY_MODE=HPP
-PRICPAY_PAYMENT_METHOD=CardEmbed
+PRICPAY_SECRET=PricPay 签名密钥
 PRICPAY_MERCHANT_WEBSITE=https://你的网关域名
-TILDA_NOTIFY_URL=https://你的Tilda通知地址
 ```
 
-其中 `PRICPAY_SECRET` 只保存在服务端，不能暴露给 Tilda 或浏览器。
+普通创单还需要：
 
-## Tilda 配置步骤
+```text
+PRICPAY_PUB_ID=你的 pubId
+PRICPAY_CREATE_MODE=EPP
+PRICPAY_PAYMENT_METHOD=CardEmbed
+```
 
-1. 将本项目部署到 Vercel，并绑定自己的域名。
-2. 在 Tilda 的支付设置中选择自定义支付方式/自定义支付网关。
-3. 将订单创建请求指向 `https://你的域名/api/pricpay/create`。
-4. 将订单 JSON 字段映射为 `orderid`、`amount`、`currency`、`email` 等字段。
-5. 将 PricPay 异步通知地址设置为 `https://你的域名/api/pricpay/notify`，并确保 Tilda 的通知地址能通过 `notifyUrl` 传入或通过 `TILDA_NOTIFY_URL` 配置。
-6. Tilda 收到响应后跳转到 `redirectUrl`。
+Tilda 转发和跳转可通过订单入参传入，也可以用环境变量兜底：
 
-## 注意事项
+```text
+TILDA_NOTIFY_URL=https://你的 Tilda 通知地址
+TILDA_SUCCESS_URL=https://你的 Tilda 成功页
+TILDA_FAILURE_URL=https://你的 Tilda 失败页
+TILDA_PENDING_URL=https://你的 Tilda 处理中页
+TILDA_NOTIFY_SECRET=Tilda 通知签名密钥
+```
 
-- Tilda 的自定义网关字段名和回调协议可能因账户/套餐不同；如果 Tilda 要求特定响应字段，只需在 `app/api/pricpay/create/route.ts` 中调整响应结构。
-- 不要把 PricPay 密钥写入 Tilda 前端代码。
-- 正式使用前请用 PricPay 测试商户号验证创单、异步通知和重复通知场景。
+可选：
+
+```text
+GATEWAY_HEALTH_TOKEN=生产环境 health 接口访问令牌
+GATEWAY_DB_TIMEOUT_MS=1000
+```
+
+`GATEWAY_DB_TIMEOUT_MS` 控制日志写库最多等待多久。默认 1000ms；超过后跳过本次数据库日志并写入 Vercel 控制台，避免日志库拖慢支付主流程。
+
+## 健康检查
+
+本地：
+
+```text
+GET http://localhost:3000/api/neon/health
+GET http://localhost:3000/api/neon/health?details=1
+```
+
+生产环境需要带 `GATEWAY_HEALTH_TOKEN`：
+
+```text
+GET https://你的域名/api/neon/health?details=1&token=...
+```
 
 ## 本地验证
 
-启动项目后检查：
-
-```text
-GET http://localhost:3000/api/pricpay/create
+```bash
+npm run build
+npm start
 ```
 
-应返回网关服务信息。创建支付必须先配置上述环境变量。
+在没有 PricPay 商户变量时，`/api/pricpay/create` 和 `/api/pricpay/cashier` 会返回配置错误，这是预期结果；配置完整后才会真实请求 PricPay。
