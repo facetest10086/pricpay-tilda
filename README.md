@@ -66,6 +66,8 @@ GET /api/pricpay/return
 }
 ```
 
+Tilda 的浏览器表单 POST 默认会收到 `303` 跳转并进入 PricPay cashier 页面。调试或服务端调用时可在接口后加 `?response=json`，此时返回上面的 JSON。
+
 ## 日志和数据库
 
 当前方案使用 Neon Postgres，不需要创建 Neon Object Storage bucket。原因是网关日志主要是结构化请求/响应/状态数据，用 Postgres JSONB 更容易按订单号、事件类型和时间查询。

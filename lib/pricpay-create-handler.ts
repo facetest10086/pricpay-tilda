@@ -23,6 +23,12 @@ function publicCheckoutResponse(result: Awaited<ReturnType<typeof submitPricpayC
   }
 }
 
+function shouldReturnJson(request: Request) {
+  const url = new URL(request.url)
+  const accept = request.headers.get('accept') ?? ''
+  return url.searchParams.get('response') === 'json' || accept.includes('application/json')
+}
+
 export async function handlePricpayCreate(request: Request, mode: PricpayCreateMode) {
   const endpoint = `/api/pricpay/${mode}`
   let orderId: string | undefined
@@ -130,7 +136,11 @@ export async function handlePricpayCreate(request: Request, mode: PricpayCreateM
       redirectUrl: result.redirectUrl,
     })
 
-    return NextResponse.json(publicCheckoutResponse(result))
+    if (shouldReturnJson(request)) {
+      return NextResponse.json(publicCheckoutResponse(result))
+    }
+
+    return NextResponse.redirect(result.redirectUrl, { status: 303 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to create payment'
     await updateGatewayOrder(orderId, { status: 'create_error', lastError: message })
