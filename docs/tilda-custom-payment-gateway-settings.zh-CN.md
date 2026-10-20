@@ -4,6 +4,36 @@
 
 本文按实际代码和用户提供的界面截图说明配置，供模板配置和联调使用。已验证本地字段转换及通知签名示例；未验证真实 Tilda 模板生成的请求、PricPay 实际支付或 Tilda 通知验签。
 
+本轮只完成 Tilda 页面配置说明。订单时间优先取订单原值、入站验签及通知应答判定等代码调整留待后续，不在本轮修改。
+
+### 按整页截图操作的顺序
+
+| 页面位置 | 本文位置 | 要做什么 |
+|---|---|---|
+| 最上方 Login、Secret、Notification URL、Currency、Country、Language | 第 6 节 | 填实际值或选择实际币种、国家、语言 |
+| Advanced settings / API URL | 第 1 节 | 设置 Cashier 入口 |
+| Mapping field list | 第 3 节 | 填顶层参数名和格式 |
+| Products 内层 | 第 4 节 | 填商品参数名，Price 使用 `goodsPrice` |
+| 运费、折扣勾选项 | 第 4 节 | 按实际订单设置 |
+| Additional field list | 第 5 节 | 添加店铺成功、失败、处理中页面 |
+| Order signature / Divider / Add secret / Algorithm | 第 7 节 | 本轮保留订单侧生成配置，并记录服务端尚不验证 |
+| Same for notify signature | 第 9 节 | 取消共用，单独核对通知签名 |
+| Notification | 第 8 节 | 设置成功标识、流水号、成功及失败应答 |
+| Form settings | 第 9 节后的“表单显示设置” | 设置标签、提示、独立通知密钥显示项 |
+| Publishing the template / Title / Add / Close | 第 9 节后的“模板标题与提交” | 设置展示名称，理解添加操作 |
+
+### 这张完整截图中应先处理的项目
+
+| 截图当前状态 | 本次如何填写或处理 |
+|---|---|
+| 商品 Price 的 Field 是 `quantity` | 改为 `goodsPrice`；Quantity 一行仍保留 `quantity` |
+| Currency 为 `RUB` | 若实际收卢布则保留；若实际收美元则选 `USD`，按真实币种决定 |
+| 上方 Notification URL 为空 | 取得 Tilda 为该模板确认的通知地址后填写；当前不能猜一个路径 |
+| Same for notify signature 已勾选 | 取消勾选，再核对独立通知签名规则 |
+| Successful payment indicator 为空 | Field 填 `paid`，Value 填 `true` |
+| Transaction ID 为空且类型为 Integer | Field 填 `transactionid`，类型选择字符串 |
+| Notification URL field hint 写着不支持国家的提示 | 改成下文提供的通知地址说明文字 |
+
 需要先明确三个现状：
 
 1. 顶层参数先发到我们的 Vercel 网关，由网关转换成 PricPay 字段；因此 `amount`、`email` 等名称是本项目的输入约定。
@@ -37,15 +67,15 @@ Tilda 提供的 Notification URL 是 Tilda 的接收地址。将其映射为下�
 
 | Tilda 左侧项目 | 中间 Field | 右侧格式 | 当前代码如何处理 |
 |---|---|---|---|
-| Login | 留空；如需记录可填 `login` | 无 | 不用于 PricPay 鉴权，实际商户号来自 `PRICPAY_MERCHANT_NO` |
+| Login | `login` | 无 | 保留 Tilda 的 Login 原值供记录；不用于 PricPay 鉴权，实际商户号来自 `PRICPAY_MERCHANT_NO` |
 | Currency | `currency` | `USD/EUR/...` | 转为 `transactionCurrency`，实际币种在上层支付配置选择 |
-| Language | 留空；如需记录可填 `language` | 填字段时保留 `Upper case` | 当前不传给 PricPay |
+| Language | `language` | `Upper case` | 保留 Tilda 的语言原值供记录，当前不传给 PricPay |
 | Country | `country` | `Upper case` | 转为 `billingCountry`，例如 `US` |
 | Notification URL | `notifyUrl` | 无 | 保存为 Tilda 通知目标，不直接作为 PricPay 通知地址 |
 | Order number | `orderid` | 保持截图的 `<project ID>:<order ID>` | 转为 `orderNumber`，原样保留完整订单号 |
 | Order description | `description` | Max length 先留空 | 未传商品数组时用于默认商品名称 |
 | Amount | `amount` | `In USD/EUR/...` | 转为 `transactionAmount`，例如 `19.90`，不用 cents/分格式 |
-| Order time | 留空；如需记录可填 `orderTime` | 填字段时保留 ISO-8601 | PricPay 的 `merchantOrderDate` 由服务器生成 |
+| Order time | `orderTime` | 保留 ISO-8601 | 先把 Tilda 订单时间带入原始请求记录；当前 PricPay 的 `merchantOrderDate` 仍由服务器生成 |
 | Customer email | `email` | 无 | 转为 `billingEmail` |
 | Customer phone | `phone` | `Unchanged` | 转为 `billingTelephone`，保留国家区号 |
 | Customer name | `name` | 保持截图的 `Name (or Full Name, if empty)` | 转为 `billingFirstName`，代码不会自动拆分全名和姓氏 |
@@ -54,7 +84,9 @@ Tilda 提供的 Notification URL 是 Tilda 的接收地址。将其映射为下�
 
 Country 的来源必须核对。当前代码把它当成客户账单国家；如果 Tilda 在此发送的是站点固定国家，不能据此认为已经收集到每位客户的真实账单国家。
 
-Login、Language、Order time 在本项目中不是必需输入。此前建议填写 `login`、`language`、`orderTime` 只是可选的记录名称；界面允许不需要的字段留空，填这些名称也不会让后台新增处理逻辑。
+Login、Language、Order time 在本项目中不是必需输入。为尽量保留订单和模板已有数据，本轮统一映射为 `login`、`language`、`orderTime`；它们会随原始请求进入现有记录流程。填写这些名称不会改变当前业务取值逻辑。
+
+关于订单时间：你的“能从订单取得就优先使用订单参数”的要求已记录。现在先配置 `orderTime` 接收原值；后续再调整服务器构建 `merchantOrderDate` 的逻辑，本轮不做该修改。
 
 ### 不应直接照填的 PricPay 字段
 
@@ -126,14 +158,21 @@ PricPay 账单数据还可以使用 `lastName`、`state`、`city`、`address`、
 
 ## 6. 上层基础设置与密钥
 
-| 设置 | 当前项目要求 |
-|---|---|
-| API URL | `https://pricpay-tilda.vercel.app/api/pricpay/cashier` |
-| 请求方法 | POST |
-| Login 的实际值 | 当前网关不使用它决定商户号；若平台要求填写，使用你的公开网关标识，勿填写密钥 |
-| Currency 的实际值 | 按店铺和 PricPay 商户实际支持的币种设置；字母格式选项不等于已选 USD |
-| Tilda 的 Notification URL | 使用 Tilda 提供的实际通知地址，通过 `notifyUrl` 传入或写入 `TILDA_NOTIFY_URL` |
-| Tilda 通知验签密钥 | 与网关的 `TILDA_NOTIFY_SECRET` 一致，具体绑定到模板的通知验签规则 |
+这里填写实际值，与 Mapping field list 填参数名不同。例如最上方 Login 填实际商户号，中间映射表 Login 填 `login`。
+
+| 界面字段 | 是什么 | 你要如何填写 | 当前项目说明 |
+|---|---|---|---|
+| Login | 此支付配置的商户标识 | 复制你现有 `PRICPAY_MERCHANT_NO` 的实际值 | 不要填写字面字符串 `PRICPAY_MERCHANT_NO`；当前后端实际鉴权仍用环境变量 |
+| Secret for order sign | Tilda 生成订单签名使用的密钥 | 填你为 Tilda 设置的订单签名密钥 | 当前创单代码尚不验证它；不要把截图中的真实密钥抄进文档或附加表单字段 |
+| Notification URL | Tilda 接收支付结果的服务器地址 | 填 Tilda 对这个自定义模板提供或确认的实际通知 URL | 不填本网关的 `/notify`、`/return`，也不填店铺成功页面 |
+| Currency | 实际订单收款币种 | 选择你实际收款且 PricPay 商户支持的币种，例如美元选择 `USD` | 截图是 `RUB`，会按映射发送 RUB；右侧 `USD/EUR/...` 只是字母代码格式，不会将它转换成 USD |
+| Country | 此 Tilda 配置的国家值 | 填实际的两位国家代码；英国为 `GB`，美国为 `US` | 截图 `GB` 仅在实际国家正确时保留；当前代码还会将映射出的值用作账单国家 |
+| Payment widget language | 支付组件语言 | 英文保留 `EN`，其他语言按店铺选择 | 映射为 `language` 供记录，当前不会控制 PricPay 收银台语言 |
+| Advanced settings / API URL | Tilda 发起支付的入口 | `https://pricpay-tilda.vercel.app/api/pricpay/cashier` | 该页面说明 POST 跳转，正式接入不加调试参数 |
+| 请求方法（若界面另有选项） | 发单方式 | POST | 使用表单字段发送 |
+| Secret for notification（显示该输入框后） | Tilda 验证本网关通知使用的密钥 | 填与 Vercel `TILDA_NOTIFY_SECRET` 完全相同的实际值 | 建议使用独立 Tilda 通知密钥，显示方法见“表单显示设置” |
+
+Notification URL 目前仍是需要取得真实值的项目。你这张截图是新建模板页面，输入框为空，并没有给出该地址。官方通用帮助明确说明它应是 Tilda 的服务器地址，但没有公布适用于这个未完成模板的通用固定 URL。应从该模板的站点配置或 Tilda 模板接入确认中取得；不能根据别人的支付模板拼一个 `/custom/pricpay/` 路径，也不能假定点击 Add 后就一定自动填好。
 
 Tilda 的 Secret for order sign 属于 Tilda 发给网关的订单签名配置。它与“网关发给 Tilda 的通知验签密钥”是不同方向；是否共用由模板设置决定，不能仅凭相似的名称认为自动相同。
 
@@ -141,17 +180,23 @@ PricPay 的商户密钥保留在服务器环境变量 `PRICPAY_SECRET` 中。Til
 
 ## 7. Order signature：当前存在服务端校验缺口
 
-截图里的项目可以逐项解释，但目前没有一套已完成服务端验证的 Tilda 入站签名配置。
+本轮按你的要求保留现有业务处理，不实现新的入站验签。下面将截图已经显示的每一项列全：前四项是订单侧生成基线，后六项按当前截图保留。它们只配置 Tilda 如何生成订单签名，不是一套已完成服务端验证的规则。
 
-| 截图项目 | Tilda 侧可先设置的基线 | 当前实现状态 |
-|---|---|---|
-| Signature rules | `All fields` | 网关没有按此规则验证 Tilda 入站签名 |
-| Excluding fields | `signature` | 签名本身不应参与生成；这是模板配置，不代表服务端已经执行排除和验证 |
-| Do not use fields with empty values for signature | 勾选 | 属于拟定的非空字段签名基线，尚未由当前创单代码验证 |
-| Fields order | `Alpha, asc` | 同上 |
-| 签名输出字段 | 上方 Mapping 中填写 `signature` | 当前字段可接收，但不会据此拒绝伪造创单请求 |
+| 界面项目 | 是什么 | 本轮如何填写或选择 | 当前实现状态 |
+|---|---|---|---|
+| Signature rules | 参与生成的字段规则 | `All fields` | Tilda 侧先配置；网关尚未验证入站签名 |
+| Excluding fields | 不参加签名的字段 | `signature` | 添加一个字段名，不填写签名值 |
+| Do not use fields with empty values for signature | 是否跳过空值 | 勾选 | 订单侧生成基线 |
+| Fields order | 字段排序方式 | `Alpha, asc` | 按字段名升序 |
+| Divider | 字段值之间的分隔符 | 本轮保持截图的空白 | 仅保留当前订单侧设置；不适用于下节的通知签名 |
+| Add secret in signature | 是否将密钥放入拼接串 | 本轮保持截图的 `No` | 仅保留当前订单侧设置，不能当成通知的规则 |
+| Signature algorithm | 摘要算法 | 保持 `MD5` | 当前后端不据此验证 Tilda 订单 |
+| Use secret as algorithm key (HMAC) | 是否用 HMAC | 保持不勾选 | 普通 MD5 与 HMAC 是不同算法 |
+| Use uppercase | 生成摘要是否大写 | 订单侧本轮保持截图的不勾选 | 通知侧必须单独按当前代码的大写结果配置 |
+| Encode result signature in base64 | 是否将结果编码成 Base64 | 保持不勾选 | 不把普通摘要改成 Base64 |
+| Mapping / Signature | 签名发出的参数名 | `signature` | 字段可接收，但当前不会据此拒绝伪造创单请求 |
 
-后续未出现在截图中的拼接、散列、密钥位置等选项，不能仅根据 PricPay 使用 MD5 就认定 Tilda 也应填相同规则。应先确定并实现 Tilda → 网关的入站签名规范，再把完整生成规则与验证代码对齐。
+上述“保留”是为了本轮不混入业务验签规则变更，不代表无密钥的摘要可以用于正式验证。后续实现订单验签时，应统一确定密钥位置、分隔符、大小写等完整规则，再同时调整页面和后端。
 
 `TILDA_ORDER_SECRET` 虽然名字包含 ORDER，当前也只是通知密钥的兼容别名，并没有启用创单验签。建议明确使用 `TILDA_NOTIFY_SECRET` 配置通知，勿将“设置了环境变量”理解为“已启用入站验签”。
 
@@ -161,13 +206,15 @@ PricPay 的商户密钥保留在服务器环境变量 `PRICPAY_SECRET` 中。Til
 
 这一块控制 Tilda 如何解释我们发回去的支付结果。
 
-| 截图项目 | 填写或选择 | 原因 |
-|---|---|---|
-| Successful payment indicator / Field | `paid` | 网关通知字段名 |
-| Successful payment indicator / Value | `true` | 网关发送的是字符串 `true`，不是 `100`、`1` 或 `success` |
-| Transaction ID / Field | `transactionid` | 全小写，来自 PricPay 平台订单号 |
-| Transaction ID / 类型 | 在下拉选项中选择表示字符串的类型 | PricPay 官方样例流水号包含字母，不能沿用 `Integer`；若下拉没有字符串类型，应先确认模板能力 |
-| Notify success answer | `OK` | Tilda 返回给本网关的成功应答内容 |
+| 界面项目 | 是什么 | 你要如何填写或选择 | 原因 |
+|---|---|---|---|
+| Successful payment indicator / Field | 判断支付成功的通知字段名 | `paid` | 与本网关通知一致 |
+| Successful payment indicator / Value | 表示支付成功的字段值 | `true` | 网关发送字符串 `true`，不是 `100`、`1` 或 `success` |
+| Transaction ID / Field | 支付流水号字段名 | `transactionid` | 全小写，来自 PricPay 平台订单号 |
+| Transaction ID / 类型 | 流水号的数据类型 | 在下拉选项中选择表示字符串的类型 | PricPay 官方样例含字母，不能沿用 `Integer`；没有字符串类型时先确认模板能力 |
+| Notify success answer | Tilda 正常接收通知后的应答 | `OK` | 大写，保留截图中的值 |
+| Notify error answer | Tilda 处理通知出错时的应答 | `ERROR` | 大写，保留截图中的值 |
+| Answers for notify as json | 是否用 JSON 包装应答 | 不勾选 | 此配置使用纯文本 `OK` / `ERROR` |
 
 `Notify success answer` 的 `OK` 是 Tilda → 本网关的响应。本网关给 PricPay 的通常应答是小写 `ok`，两者不是同一个方向。
 
@@ -188,18 +235,31 @@ PricPay 的商户密钥保留在服务器环境变量 `PRICPAY_SECRET` 中。Til
 
 本节是网关 → Tilda 的通知签名，不能用第 7 节的订单签名配置替代。
 
+### Same for notify signature 要如何选择
+
+| 界面项目 | 是什么 | 你要如何选择 | 原因 |
+|---|---|---|---|
+| Same for notify signature | 通知是否沿用订单签名规则 | 取消勾选 | 截图订单侧是空分隔符、No secret、非大写；与当前通知签名不一致 |
+| 独立通知签名规则 | 取消共用后单独核对的规则 | 按下一张表配置，不能直接照搬第 7 节 | 两个方向处理的字段和拼接方式不同 |
+
+取消共用后，若界面提供独立通知签名区块，应以该区块的实际选项配置。完整截图尚未展示取消勾选之后的界面，因此无法仅凭这张图给出 Special rules 文本框的可粘贴模板语法。
+
 要与当前 `toTildaNotification()` 一致，通知验签需要：
 
-| 规则 | 必须满足的行为 |
-|---|---|
-| 使用的字段 | 非空的 `amount`、`orderid`、`paid`、`transactionid` |
-| 排除字段 | `signature`、`target`；如使用 All fields 还需排除其他未签入字段 |
-| 空值 | 不参与 |
-| 顺序 | 按字段名升序，即 `amount`、`orderid`、`paid`、`transactionid` |
-| 字段格式 | `key=value` |
-| 字段连接符 | `&` |
-| 末尾密钥 | 在最后一个字段后追加 `&secret=` 和实际通知密钥 |
-| 编码和散列 | 按当前 Node 代码的 UTF-8 字符串计算 MD5，结果转大写 |
+| 通知侧配置 | 你要填写或达到的值 | 配置说明 |
+|---|---|---|
+| 使用的字段 | 非空的 `amount`、`orderid`、`paid`、`transactionid` | 不把其他字段自动混入 |
+| Excluding fields（若采用 All fields） | 分别添加 `signature`、`target` | 如存在其他未签入字段，也需排除 |
+| Do not use fields with empty values | 勾选 | 空值不参与 |
+| Fields order | `Alpha, asc` | 顺序为 amount、orderid、paid、transactionid |
+| 字段内容格式 | `key=value` | 必须包含字段名，不能只连接字段值 |
+| 字段连接符 | `&` | 只有这个分隔符还不足以表达完整规则 |
+| 末尾密钥规则 | 追加 `&secret=` 和实际通知密钥 | 不要把 `&secret=` 填进密钥本身；不能假定普通 Add secret 选项会自动补这个前缀 |
+| Signature algorithm | `MD5` | 按 UTF-8 原始字符串计算 |
+| Use secret as algorithm key (HMAC) | 不勾选 | 当前是 MD5，不是 HMAC-MD5 |
+| Use uppercase | 勾选 | 当前结果为大写十六进制 |
+| Encode result signature in base64 | 不勾选 | 当前不是 Base64 |
+| Signature rules / Special rules | 仅当能表达完整拼接串时使用 | 需要核对独立通知规则实际支持的模板语法，不能编造占位符 |
 
 下面使用虚构通知密钥 `TILDA_DEMO_SECRET`，已通过实际代码计算核对：
 
@@ -215,7 +275,33 @@ C20699714DE7CE1E88F2E52D66060C69
 
 用于计算的是原始字段值，不是 URL 编码后的整段表单文本。金额字符串 `19.90` 也不要擅自改成 `19.9` 再计算。
 
-截图没有展示 Tilda 的完整通知签名配置界面，官方通用帮助也没有给出该模板的所有控件选项。必须确认模板能表达上述规则；若通用拼接不支持，可核对 Special rules 的实际能力，但本文不编造占位符语法。不能仅选择 MD5、升序就认为已经匹配了完整签名。
+这一项仍需确认独立通知规则的实际模板能力；它是必须对齐的配置，不是可以假定已经完成的代码优化。当前截图中的 `Same for notify signature` 勾选状态不能作为已匹配方案。本文已列出所需值和验证样例，不声称当前页面已经能直接生成相同摘要。
+
+### 表单显示设置：Form settings
+
+这些 title / hint 只改变管理员看到的标签和提示，不改变接口参数名。Russian 项不使用时可保持原文，主要修改 English；下面所有文案都是要填的显示文字，不是密钥或接口字段值。
+
+| 界面项目 | 是什么 | English 要如何填写 | Russian / 其他处理 |
+|---|---|---|---|
+| "LOGIN" field title | 顶部 Login 的标题 | `Merchant ID` | 保持原文即可 |
+| "LOGIN" field hint | 顶部 Login 下方说明 | `Merchant number configured for this gateway.` | 保持原文即可 |
+| "SECRET FOR ORDER SIGN" field title | 顶部订单签名密钥标题 | `Tilda order signing secret` | 保持原文即可 |
+| Show field "Secret for notification" | 是否显示独立通知密钥输入框 | 勾选 | 出现后填入与 Vercel `TILDA_NOTIFY_SECRET` 相同的实际值；不要填写环境变量名称本身 |
+| "NOTIFICATION URL" field title | 顶部通知地址标题 | `Tilda payment notification URL` | 保持原文即可 |
+| "NOTIFICATION URL" field hint | 顶部通知地址的说明 | `Tilda URL that receives payment status notifications.` | 当前截图中的国家限制提示与此字段不符，应更正 |
+
+如果勾选后出现额外的通知密钥标题或提示设置，可分别使用 `Tilda notification signing secret` 和 `Must match the gateway notification signing secret.`。这些是显示文案建议，不是新增后端字段。
+
+### 模板标题与提交：Publishing the template
+
+| 界面项目 | 是什么 | 你要如何填写或操作 | 说明 |
+|---|---|---|---|
+| Publishing the template | 公开模板发布说明 | 先完成当前站点联调，再按 Tilda 流程申请公开 | 页面说明公开模板需审核，填写配置不等于已获审核 |
+| Title | 顾客在购物车中看到的支付方式名称 | `PricPay` | 也可用你希望顾客看到的明确名称；不是商户号或 API 字段 |
+| Add | 添加或提交这个支付集成的操作 | 完成已确认项目、核对页面声明后由你提交 | 当前截图说明这是新集成申请，不把它描述成无条件的草稿保存 |
+| Close | 关闭配置窗口 | 需要添加配置时不要用它代替 Add | 它不是提交配置的按钮 |
+
+目前不能编造的两个实际值是：该模板的 Tilda Notification URL，以及独立通知签名 Special rules 的实际可用语法。其余已见字段均已逐项列出；这两项取得或确认后，才能把“页面配置完成”和“Tilda 可正确验签收款通知”同时验证。
 
 ## 10. 环境变量与健康检查
 
