@@ -1,8 +1,8 @@
 # Tilda 自定义支付网关配置：按页面顺序填写
 
-核对日期：2026-10-20。代码基线：`2dfca40`。店铺：`https://hoteltoiletries.ru/`。收款币种：`RUB`。接入方式：PricPay Cashier。
+核对日期：2026-10-20。当前代码已适配客户字段优先级与 Tilda 订单时间，需部署后验证。店铺：`https://hoteltoiletries.ru/`。收款币种：`RUB`。接入方式：PricPay Cashier。
 
-本文先列出最新截图中尚待处理的问题，再从页面最上方开始逐项填写。业务代码保持本轮约定，订单时间取值等调整留到后续。
+本文先列出尚待处理的问题，再从页面最上方开始逐项填写。已支持 firstName、customerCountry 优先取值，并将 orderTime 转为上游订单时间；真实 Tilda 参数传递仍需联调。
 
 ## 当前仍需处理或确认的问题
 
@@ -12,8 +12,8 @@
 | 通知签名密钥 | 尚未确认 Tilda 实际验签密钥与 Vercel Production 的 TILDA_NOTIFY_SECRET 已一致 | 采用同一个实际值；使用独立通知密钥框时也填相同值 |
 | 成功／失败页面 | 2026-10-20 上次检查两个目标地址均返回 404，尚未收到发布成功的确认 | 创建并发布 payment-success、payment-failed 两页，再打开网址确认 |
 | 商户身份 | 截图商户号与本地一致，也与 PricPay 官方通知文档的示例商户号相同 | 确认它确实由 PricPay 分配给你；一致并不能证明账号权限有效 |
-| Country | 截图是 GB，实际配置国家尚未确认 | 实际为英国可保留；币种 RUB 不代表国家必须是 RU |
-| 地址数据 | 当前只确认了姓名、邮箱、电话，尚未验收完整地址采集和动态传递 | 先在 ST100 表单收集真实地址，再核对支付 POST；不要往附加字段塞固定地址 |
+| Country | 你决定上方固定值保留 GB；已新增客户国家字段约定 | 确认真实 customerCountry 已传入并优先使用，未传时仍会兜底到旧 country |
+| 地址数据 | 你已反馈完成配置；后端已适配，尚未验收实际动态传递 | 核对支付 POST 和上游 billing* 的真实值，不将变量名字符串当作客户数据 |
 | Tilda 通知地址 | 只读且尚未看到生成后的实际地址，这是待确认项，不是手工填写错误 | 按平台流程保存配置后重新打开，读取生成的地址，并检查真实订单的 notifyUrl |
 
 **以下项目不再列为错误：你已确认商品 Price 改为 `goodsPrice`；RUB 已确认正确；顶层字段名称、取消共用通知签名，以及 `paid=true`、`transactionid / Custom`、`OK / ERROR` 已按最新信息记录。** 后续若改动，以实际配置和真实请求为准。
@@ -28,7 +28,7 @@
 | Secret for order sign | Tilda 生成订单签名使用的密钥 | 可以使用已生成的独立 Tilda 密钥，取本地 `.env.tilda-signing.local` 等号后完整值 | 当前服务器尚未校验 Tilda 订单签名；填入密钥不会自动启用验证 |
 | Notification URL | Tilda 接收支付通知的地址 | 这是只读项，保持系统管理，不手工填 | 保存后重新打开查看生成的地址，不填本网关 /notify 或 /return |
 | Currency | 实际收款币种 | `RUB` | 你已确认，保留；还需 PricPay 实际商户支持 RUB |
-| Country | 此支付配置的国家 | 应使用实际国家；当前代码会将它当作账单国家，俄罗斯账单应为 `RU` | 不要只为少显示设置而保留 GB；跨国客户需真实账单国家 |
+| Country | 此支付配置的固定国家 | 按你的决定先保留 `GB` | 客户真实国家从 customerCountry 传入；后端只在无新国家字段时兜底到这里 |
 | Payment widget language | 组件语言 | 面向俄罗斯买家建议 `RU` | 当前网关记录 language，不用它控制 PricPay 收银台语言 |
 
 ### 本次使用的密钥怎样对应
@@ -57,7 +57,7 @@ Notification URL 在保存后生成的操作可见 [Tap2Pay](https://tap2pay.me/
 | VAT for delivery | 运费收据税项 | 同样应按实际配置核对 |
 | FFD: method of payment calculation | 财政收据格式及计算方式 | 当前网关没有接入这段财政参数传递 |
 
-当前 PricPay 请求没有发送这些税务／FFD 参数，也没有实现俄罗斯电子收据服务。切回 GB 只是改变页面选项，并不能让错误的账单国家变得正确。相关业务配置应依据实际接入服务核对，不能由本文替你选择税制。
+当前 PricPay 请求没有发送这些税务／FFD 参数，也没有实现俄罗斯电子收据服务。保留 GB 不代替客户真实账单国家，也不解决电子收据接入。相关业务配置应依据实际接入服务核对，不能由本文替你选择税制。
 
 ## 2. Advanced settings → URL
 
@@ -78,23 +78,23 @@ Notification URL 在保存后生成的操作可见 [Tap2Pay](https://tap2pay.me/
 | Login | `login` | 无 | 保留原值供记录；PricPay 商户号仍从服务器环境变量读取 |
 | Currency | `currency` | `USD/EUR/...` | 发给 PricPay 的 transactionCurrency；实际值来自上方 RUB |
 | Language | `language` | `Upper case` | 保留语言原值 |
-| Country | `country` | `Upper case` | 当前转成 PricPay 的 billingCountry |
+| Country | `country` | `Upper case` | 旧兼容兜底；customerCountry、billingCountry 优先 |
 | Notification URL | `notifyUrl` | 无 | 保存 Tilda 实际通知目标，不直接作为 PricPay 通知 URL |
 | Order number | `orderid` | `<project ID>:<order ID>` | 原样转成 PricPay 的 orderNumber |
 | Order description | `description` | Max length 先留空 | 没传商品数组时用作默认商品名称 |
 | Amount | `amount` | `In USD/EUR/...` | 以元为单位，例如 1490.00 RUB；不选 cents/分格式 |
-| Order time | `orderTime` | `ISO-8601` | 先保留 Tilda 订单原始时间；当前上游订单时间仍由服务器生成 |
+| Order time | `orderTime` | `ISO-8601` | 将带时区的订单时间转为 UTC，生成上游 merchantOrderDate |
 | Customer email | `email` | 无 | 转成 billingEmail |
 | Customer phone | `phone` | `Unchanged` | 转成 billingTelephone，保留国家区号 |
-| Customer name | `name` | `Name (or Full Name, if empty)` | 转成 billingFirstName，当前不自动拆分姓氏 |
+| Customer name | `name` | `Name (or Full Name, if empty)` | 旧兼容备用；明确的 firstName、billingFirstName 优先，不自动拆分全名 |
 | Signature | `signature` | 无 | Tilda 传签名；当前创单处理尚未校验 |
 | Products | `products` | `Array in JSON` | 封装成 PricPay 的 productInformation，内部字段保持原名 |
 
 以上顶层名称按最新信息可保留。不要把 `amount` 改成 `transactionAmount`，也不要把 `currency` 改成 `transactionCurrency`：当前对应取值函数不识别这两个上游名称。
 
-Country 目前会被网关当作客户账单国家。如果 Tilda 发送的是站点固定国家，并不代表已取得每位客户的真实账单国家；本轮记录这个现状，不修改代码。
+账单国家取值优先级为 customerCountry → billingCountry → country。customerCountry 应来自客户真实国家，不能把站点固定国家视为每位客户的实际国家。
 
-关于订单时间：先设置 `orderTime`，尽量保留订单已有参数。后续再调整生成 PricPay `merchantOrderDate` 的逻辑。
+订单时间已使用 orderTime，要求带 Z 或 +03:00 等时区偏移、精确到秒，可带 1 至 3 位毫秒。例如 2026-10-20T10:15:30+03:00 转成 UTC 的 2026-10-20 07:15:30。无效日期或缺少时区返回 HTTP 400；未传或空值时兼容旧请求，使用服务器当前 UTC 时间。原始参数仍保存在订单日志中。
 
 ## 4. Products：商品内部映射
 
@@ -154,20 +154,22 @@ PricPay 示例还包含 `productUrl`、`productCategory`；当前截图没有对
 
 | 其他设置 | 如何处理 |
 |---|---|
-| `lastName`、`state`、`city`、`address`、`zip` | 当前不是已经确认可照填的 Additional 配置，不在这里添加只有键的项目或固定地址 |
+| `firstName`、`lastName`、`customerCountry`、`state`、`city`、`address`、`zip` | 后端已支持这些参数；Additional 动态源字段绑定仍需实际 POST 确认，不填只有键的项目或同名固定字符串 |
 | 已有 URL 环境变量 | 若用 TILDA_SUCCESS_URL、TILDA_FAILURE_URL、TILDA_PENDING_URL 兜底，可不重复传对应页面参数；订单参数优先 |
 
-你目前 Additional field list 只添加成功／失败链接是正确的。缺失地址应先在 ST100 → Content → Input fields 添加客户可填写的输入框：
+在 ST100 → Content → Input fields 中，按以下约定收集客户数据；约定发给本网关的参数名与表单 Variable name 一致：
 
 | 输入框标题示例 | 建议表单 Variable name | Value 的实际来源 |
 |---|---|---|
+| Имя（名） | `firstName` | 买家填写的名，优先于旧 name |
 | Фамилия（姓） | `lastName` | 买家填写的姓 |
+| Страна（国家） | `customerCountry` | 买家实际国家的两位代码，如 RU，优先于固定 country |
 | Регион / область（地区） | `state` | 买家填写或选择的地区 |
 | Город（城市） | `city` | 买家填写的城市 |
 | Улица, дом, квартира（详细地址） | `address` | 买家填写的街道、门牌、房间 |
 | Почтовый индекс（邮编） | `zip` | 买家填写的邮编字符串 |
 
-姓名、邮箱、电话保留现有字段。发货订单应按实际物流要求将城市、详细地址、邮编等设置为必填。表单采集与发送到支付网关是两步：发布后既要在 Tilda 订单中看到这些值，也要确认 `/api/pricpay/cashier` 的实际 POST 含这些值。仅给表单变量命名，不保证自定义网关会自动收到所有自定义字段。
+姓名按 firstName、lastName 分开收集；邮箱和电话已有 email、phone 映射时不重复添加。发货订单应按实际物流要求将城市、详细地址、邮编等设置为必填。表单采集与发送到支付网关是两步：发布后既要在 Tilda 订单中看到这些值，也要确认 `/api/pricpay/cashier` 的实际 POST 含真实值。仅给表单变量命名，不保证自定义网关会自动收到所有自定义字段。
 
 目前没有验证该 Additional 的 Value 支持任意购物车动态变量，因此不要直接填写 `{{city}}`。如果实际支付请求没有地址字段，需要补传递适配；当前项目也没有专用的完整 Tilda 表单接收接口。[地址采集与传递说明](tilda-customer-address-setup.zh-CN.md)列出具体步骤和仍未验收的链路。
 

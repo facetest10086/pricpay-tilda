@@ -100,22 +100,27 @@ POST
 ```text
 orderid      Tilda 订单号
 amount       订单金额
-currency     货币，建议 USD
+currency     实际收款货币，本店为 RUB
 email        客户邮箱
 ```
 
 建议补充：
 
 ```text
-name         名
+firstName    名，优先于旧 name
 lastName     姓
 phone        电话
-country      国家代码
+customerCountry 客户实际国家，两位代码，优先于固定 country
 state        州/省
 city         城市
 address      地址
 zip          邮编
+orderTime    Tilda 订单时间，带时区的 ISO-8601 格式
 ```
+
+购物车变量名与上面参数名统一，不使用全小写 firstname、lastname，也不自动拆分 fullname。已有顶层姓名映射 name 可作兼容备用；新 firstName 优先。Additional 的动态取值方式仍需用实际 POST 核对，不能仅凭两边填写同名字符串认定已绑定。
+
+订单时间使用 Tilda 的 orderTime，转成 UTC 的 YYYY-MM-DD HH:mm:ss 后发给 PricPay；无效时间返回 400，未传时才使用服务器时间兜底。地址字段映射到 PricPay billing*，配送与账单地址不同的订单不能直接复用。
 
 回调和跳转：
 

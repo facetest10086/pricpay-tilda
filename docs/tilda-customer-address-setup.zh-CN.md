@@ -2,7 +2,7 @@
 
 店铺：`https://hoteltoiletries.ru/`。币种：RUB。核对日期：2026-10-20。
 
-当前 Additional field list 只添加 `successUrl` 和 `failUrl` 是正确的。客户地址不是固定配置值，不能在这里统一填一个州、城市或地址，也不能只填键而不确定动态值来源。
+Additional field list 中的 `successUrl` 和 `failUrl` 保留固定链接。客户字段已约定为下表的参数名，后端已适配；Additional 的动态源字段绑定方式仍需检查实际 POST，不能用同名固定字符串冒充客户输入。
 
 ## 1. 目前缺什么
 
@@ -18,15 +18,17 @@
 
 | 顾客看到的俄文标签 | 建议 Variable name | 输入方式 | 必填建议 | 动态值来源 |
 |---|---|---|---|---|
-| Имя | `name` | 姓名或单行输入 | 必填 | 买家输入的名；若原有字段收全名，需要保持其真实含义 |
+| Имя | `firstName` | 姓名或单行输入 | 必填 | 买家输入的名，后端优先于旧 name |
 | Фамилия | `lastName` | 单行输入 | 结合物流及 PricPay 实际要求设置 | 买家输入的姓，不从全名强行猜测 |
 | Email | `email` | Email 输入 | 必填 | 买家邮箱 |
 | Телефон | `phone` | 电话输入 | 必填 | 买家电话，面向俄罗斯时核对默认区号设置 |
-| Страна | `country` | 真实国家选择 | 有跨国订单时必填 | 买家实际地址国家，发给网关时需用 RU、GB 等两位代码；不编造下拉项编码语法 |
+| Страна | `customerCountry` | 真实国家选择 | 必填 | 买家实际地址国家，两位代码如 RU；优先于站点固定 country，不编造下拉项编码语法 |
 | Регион / область | `state` | 单行输入或合适的地区选择 | 结合物流及 PricPay 实际要求设置 | 买家实际地区，例如 Московская область |
 | Город | `city` | 单行输入 | 发货订单建议必填 | 买家实际城市 |
 | Улица, дом, квартира | `address` | 单行或多行输入 | 发货订单建议必填 | 实际街道、门牌和房间信息 |
 | Почтовый индекс | `zip` | 单行文本输入 | 结合实际物流要求设置 | 买家实际邮编，保留字符串形式 |
+
+上述 Variable name 同时是约定发给本网关的参数名。邮箱和电话已有顶层映射时不重复添加；姓名使用 firstName、lastName 分开采集，不使用 fullname，也不自动猜测拆分。旧 name 仅作为后端兼容备用。
 
 每个输入框的“标题”和“Variable name”是不同设置；例如标题是 `Город`，变量名才是 `city`。不要将“Москва”固定成所有客户的城市。
 
@@ -41,7 +43,7 @@
 | 需核对的位置 | 正确现象 |
 |---|---|
 | Tilda 订单／表单记录 | 能看到客户实际填写的地区、城市、地址和邮编 |
-| 发往 `/api/pricpay/cashier` 的实际 POST | 包含对应的 `state`、`city`、`address`、`zip`，以及需要时的 `lastName`、真实国家 |
+| 发往 `/api/pricpay/cashier` 的实际 POST | 包含真实的 `firstName`、`lastName`、`customerCountry`、`state`、`city`、`address`、`zip`，不是这些变量名的字面字符串 |
 | 网关 `pricpay.cashier.request` 日志／原始订单记录 | 原始请求保留了这些值 |
 | 网关 `pricpay.cashier.gateway_request` 日志 | `billingState`、`billingCity`、`billingAddress`、`billingZip` 等为客户真实值 |
 
@@ -55,7 +57,7 @@
 
 ## 4. Country 与俄罗斯收据选项
 
-`GB` 是英国，不应只为隐藏俄罗斯收据设置而保留。当前代码会把 Tilda 发来的 `country` 用作 PricPay 的 `billingCountry`，所以 GB 会影响实际支付请求。
+上方固定 Country 按你的决定暂时保留 GB。后端账单国家现在按 `customerCountry` → `billingCountry` → `country` 取第一个非空值，并去掉首尾空格、转大写；收到真实 customerCountry=RU 时，不会被固定 country=GB 覆盖。若新字段没有传到，旧 country 仍会作为兼容兜底，不能认定 GB 永远不影响请求。
 
 只处理俄罗斯地址且确认账单国家为俄罗斯时可以使用 RU；跨国订单应取得真实账单国家。RUB 是币种，RU 是国家代码，两者不能互相替代。
 

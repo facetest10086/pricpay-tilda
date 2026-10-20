@@ -48,6 +48,15 @@ GET /api/pricpay/return
   "orderid": "TILDA-10001",
   "amount": "38.59",
   "currency": "USD",
+  "firstName": "Ivan",
+  "lastName": "Ivanov",
+  "customerCountry": "RU",
+  "state": "Moscow Oblast",
+  "city": "Moscow",
+  "address": "Example Street 12",
+  "zip": "001234",
+  "phone": "+79991234567",
+  "orderTime": "2026-10-20T10:15:30+03:00",
   "email": "customer@example.com",
   "notifyUrl": "https://example.tilda.ws/payment/custom/notify",
   "successUrl": "https://example.tilda.ws/payment-success",
@@ -67,6 +76,10 @@ GET /api/pricpay/return
 ```
 
 Tilda 的浏览器表单 POST 默认会收到 `303` 跳转并进入 PricPay cashier 页面。调试或服务端调用时可在接口后加 `?response=json`，此时返回上面的 JSON。
+
+`firstName` 优先于旧 `name`；`customerCountry` 优先于 `billingCountry` 和站点固定 `country`，国家代码会去掉首尾空格并转大写。客户字段须传实际值，不能用字面字符串 `firstName` 或 `customerCountry` 代替。地址键当前对应 PricPay 的账单地址，配送地址与账单地址不同时不能直接复用。
+
+`orderTime` 使用带时区的 ISO-8601 时间（`Z` 或 `+03:00` 等偏移，秒必填，可带 1 至 3 位毫秒）。网关转成 UTC 的 `YYYY-MM-DD HH:mm:ss`，例如上面的值变为 `2026-10-20 07:15:30`。传入无效日期或缺少时区会返回 HTTP 400；未传或空值时兼容旧请求，使用服务器当前 UTC 时间。原始入参仍保存在订单日志中。
 
 ## 日志和数据库
 
@@ -146,7 +159,11 @@ GET https://你的域名/api/neon/health?details=1&token=...
 
 ## 本地验证
 
+本地回归测试使用 Node.js 22.6+ 的实验性 TypeScript 类型剥离功能，不请求 PricPay 或数据库：
+
 ```bash
+npm test
+npx tsc --noEmit
 npm run build
 npm start
 ```

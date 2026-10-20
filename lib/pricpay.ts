@@ -129,6 +129,25 @@ export function getOrderCurrency(order: TildaOrder) {
   return value(order, 'currency', 'currencyCode') || 'USD'
 }
 
+function merchantOrderDate(order: TildaOrder) {
+  const orderTime = value(order, 'orderTime').trim()
+  if (!orderTime) return new Date().toISOString().slice(0, 19).replace('T', ' ')
+
+  const isoTime = /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/
+  const parsed = new Date(orderTime)
+  if (!isoTime.test(orderTime) || Number.isNaN(parsed.getTime())) {
+    throw new Error('Invalid Tilda orderTime: expected ISO-8601 with a timezone')
+  }
+
+  // Date parsing can roll impossible dates such as February 30 into March.
+  const calendarDate = new Date(`${orderTime.slice(0, 10)}T00:00:00Z`)
+  if (calendarDate.toISOString().slice(0, 10) !== orderTime.slice(0, 10)) {
+    throw new Error('Invalid Tilda orderTime: calendar date does not exist')
+  }
+
+  return parsed.toISOString().slice(0, 19).replace('T', ' ')
+}
+
 export function getTildaGatewayUrls(order: TildaOrder): TildaGatewayUrls {
   return {
     notifyUrl: value(order, 'notifyUrl', 'notificationUrl', 'tildaNotifyUrl') || process.env.TILDA_NOTIFY_URL || '',
@@ -160,7 +179,7 @@ function buildPricpayOrder(order: TildaOrder, requestUrl: string, mode: PricpayC
     websiteVersionNumber: 'V1.0',
     signType: 'MD5',
     merchantNo: config.merchantNo,
-    merchantOrderDate: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    merchantOrderDate: merchantOrderDate(order),
     orderNumber,
     merchantWebsite: config.website || new URL(requestUrl).origin,
     transactionAmount: amount,
@@ -168,12 +187,12 @@ function buildPricpayOrder(order: TildaOrder, requestUrl: string, mode: PricpayC
     notifyUrl,
     returnUrl,
     ip: value(order, 'ip', 'userIp'),
-    billingCountry: value(order, 'country', 'billingCountry'),
+    billingCountry: value(order, 'customerCountry', 'billingCountry', 'country').trim().toUpperCase(),
     billingState: value(order, 'state', 'billingState'),
     billingCity: value(order, 'city', 'billingCity'),
     billingAddress: value(order, 'address', 'billingAddress'),
     billingZip: value(order, 'zip', 'billingZip'),
-    billingFirstName: value(order, 'name', 'firstName', 'billingFirstName'),
+    billingFirstName: value(order, 'firstName', 'billingFirstName', 'name'),
     billingLastName: value(order, 'lastName', 'billingLastName'),
     billingTelephone: value(order, 'phone', 'telephone', 'billingTelephone'),
     billingEmail: value(order, 'email', 'billingEmail'),
