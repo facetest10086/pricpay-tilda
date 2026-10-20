@@ -13,6 +13,7 @@
 | 成功／失败页面 | 2026-10-20 上次检查两个目标地址均返回 404，尚未收到发布成功的确认 | 创建并发布 payment-success、payment-failed 两页，再打开网址确认 |
 | 商户身份 | 截图商户号与本地一致，也与 PricPay 官方通知文档的示例商户号相同 | 确认它确实由 PricPay 分配给你；一致并不能证明账号权限有效 |
 | Country | 截图是 GB，实际配置国家尚未确认 | 实际为英国可保留；币种 RUB 不代表国家必须是 RU |
+| 地址数据 | 当前只确认了姓名、邮箱、电话，尚未验收完整地址采集和动态传递 | 先在 ST100 表单收集真实地址，再核对支付 POST；不要往附加字段塞固定地址 |
 | Tilda 通知地址 | 只读且尚未看到生成后的实际地址，这是待确认项，不是手工填写错误 | 按平台流程保存配置后重新打开，读取生成的地址，并检查真实订单的 notifyUrl |
 
 **以下项目不再列为错误：你已确认商品 Price 改为 `goodsPrice`；RUB 已确认正确；顶层字段名称、取消共用通知签名，以及 `paid=true`、`transactionid / Custom`、`OK / ERROR` 已按最新信息记录。** 后续若改动，以实际配置和真实请求为准。
@@ -27,8 +28,8 @@
 | Secret for order sign | Tilda 生成订单签名使用的密钥 | 可以使用已生成的独立 Tilda 密钥，取本地 `.env.tilda-signing.local` 等号后完整值 | 当前服务器尚未校验 Tilda 订单签名；填入密钥不会自动启用验证 |
 | Notification URL | Tilda 接收支付通知的地址 | 这是只读项，保持系统管理，不手工填 | 保存后重新打开查看生成的地址，不填本网关 /notify 或 /return |
 | Currency | 实际收款币种 | `RUB` | 你已确认，保留；还需 PricPay 实际商户支持 RUB |
-| Country | 此支付配置的国家 | 实际为英国时填 `GB`；否则填实际两位国家代码 | 不能仅按 .ru 域名或 RUB 币种推断国家 |
-| Payment widget language | 组件语言 | 英文保留 `EN`；需要其他语言时按店铺选择 | 当前网关记录 language，不用它控制 PricPay 收银台语言 |
+| Country | 此支付配置的国家 | 应使用实际国家；当前代码会将它当作账单国家，俄罗斯账单应为 `RU` | 不要只为少显示设置而保留 GB；跨国客户需真实账单国家 |
+| Payment widget language | 组件语言 | 面向俄罗斯买家建议 `RU` | 当前网关记录 language，不用它控制 PricPay 收银台语言 |
 
 ### 本次使用的密钥怎样对应
 
@@ -46,6 +47,17 @@
 本地 `.env` 上次检查未设置 `TILDA_NOTIFY_SECRET`，代码会回退使用 `PRICPAY_SECRET` 签通知；线上值应在 Production 核对。只改 Tilda 而不对齐网关实际密钥，会导致通知验签不一致。
 
 Notification URL 在保存后生成的操作可见 [Tap2Pay](https://tap2pay.me/how-to-integrate-tap2pay-with-tilda/)和 [PassimPay](https://passimpay.io/en/modules/tilda) 的 Tilda 对接说明。若当前新模板需要申请或审核，按 Tilda 实际流程完成后再读取，不手工拼接地址。
+
+### 选择 RU 后出现的俄罗斯收据选项
+
+| 页面字段 | 是什么 | 本项目当前状态 |
+|---|---|---|
+| Taxation for online receipt | 收据所用税制，例如 OSN | 不能仅凭默认值判定适用，按实际收据服务配置核对 |
+| Online receipt / VAT | 商品收据的增值税设置 | 不因想减少设置就统一选择 VAT Free |
+| VAT for delivery | 运费收据税项 | 同样应按实际配置核对 |
+| FFD: method of payment calculation | 财政收据格式及计算方式 | 当前网关没有接入这段财政参数传递 |
+
+当前 PricPay 请求没有发送这些税务／FFD 参数，也没有实现俄罗斯电子收据服务。切回 GB 只是改变页面选项，并不能让错误的账单国家变得正确。相关业务配置应依据实际接入服务核对，不能由本文替你选择税制。
 
 ## 2. Advanced settings → URL
 
@@ -134,12 +146,30 @@ PricPay 示例还包含 `productUrl`、`productCategory`；当前截图没有对
 
 在 Tilda 创建成功页，将页面路径设为 `payment-success` 并发布；创建失败页，将路径设为 `payment-failed` 并发布。分别直接打开两个网址，确认可访问后再作为实际返回地址使用。填 URL 本身不会创建页面。
 
+已准备可直接放入 T123 的俄文模板：[成功返回页 HTML](tilda-pages/payment-success.html)、[失败返回页 HTML](tilda-pages/payment-failed.html)。新建空白页面，设置上述路径，添加 Other → T123，把对应 HTML 全部放入代码框后发布即可。[完整建页步骤](tilda-pages/README.zh-CN.md)包含标题和发布后检查。
+
+这些文件目前只在本地准备，没有自动发布到 Tilda。浏览器工具禁止 file:// 预览，尚未做浏览器视觉检查，发布后需要确认实际显示。
+
 不要将本网关的 `/api/pricpay/return` 填成成功页，网关会先处理该返回请求，再跳到你的店铺页面。页面展示不能单独证明已经收款。
 
-| 其他可用的附加参数 | 如何填写 |
+| 其他设置 | 如何处理 |
 |---|---|
-| `lastName`、`state`、`city`、`address`、`zip` | 绑定客户真实填写的数据，不填同名字符串或统一假地址 |
+| `lastName`、`state`、`city`、`address`、`zip` | 当前不是已经确认可照填的 Additional 配置，不在这里添加只有键的项目或固定地址 |
 | 已有 URL 环境变量 | 若用 TILDA_SUCCESS_URL、TILDA_FAILURE_URL、TILDA_PENDING_URL 兜底，可不重复传对应页面参数；订单参数优先 |
+
+你目前 Additional field list 只添加成功／失败链接是正确的。缺失地址应先在 ST100 → Content → Input fields 添加客户可填写的输入框：
+
+| 输入框标题示例 | 建议表单 Variable name | Value 的实际来源 |
+|---|---|---|
+| Фамилия（姓） | `lastName` | 买家填写的姓 |
+| Регион / область（地区） | `state` | 买家填写或选择的地区 |
+| Город（城市） | `city` | 买家填写的城市 |
+| Улица, дом, квартира（详细地址） | `address` | 买家填写的街道、门牌、房间 |
+| Почтовый индекс（邮编） | `zip` | 买家填写的邮编字符串 |
+
+姓名、邮箱、电话保留现有字段。发货订单应按实际物流要求将城市、详细地址、邮编等设置为必填。表单采集与发送到支付网关是两步：发布后既要在 Tilda 订单中看到这些值，也要确认 `/api/pricpay/cashier` 的实际 POST 含这些值。仅给表单变量命名，不保证自定义网关会自动收到所有自定义字段。
+
+目前没有验证该 Additional 的 Value 支持任意购物车动态变量，因此不要直接填写 `{{city}}`。如果实际支付请求没有地址字段，需要补传递适配；当前项目也没有专用的完整 Tilda 表单接收接口。[地址采集与传递说明](tilda-customer-address-setup.zh-CN.md)列出具体步骤和仍未验收的链路。
 
 不要在附加字段中发送 PricPay 密钥、数据库连接串或健康检查令牌。
 
