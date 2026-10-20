@@ -2,6 +2,8 @@
 
 完整的逐项配置请阅读 [Tilda 自定义支付网关设置](tilda-custom-payment-gateway-settings.zh-CN.md)。该文档覆盖字段映射、商品内部字段、运费折扣、订单签名和支付结果通知，并说明当前代码的验签及通知应答判定缺口。
 
+客户字段实测不能通过 Additional 的同名固定值读取。现在需要安装 [客户数据 T123 脚本](tilda-customer-data-install.zh-CN.md)，删除七组固定客户字段；Cashier 会在创单前按订单 ID/token 读取真实数据，缺少脚本或数据时不继续创单。
+
 ## 推荐链路
 
 当前推荐使用 PricPay 收银台接口：
@@ -118,7 +120,7 @@ zip          邮编
 orderTime    Tilda 订单时间，带时区的 ISO-8601 格式
 ```
 
-购物车变量名与上面参数名统一，不使用全小写 firstname、lastname，也不自动拆分 fullname。已有顶层姓名映射 name 可作兼容备用；新 firstName 优先。Additional 的动态取值方式仍需用实际 POST 核对，不能仅凭两边填写同名字符串认定已绑定。
+购物车变量名与上面参数名统一，不使用全小写 firstname、lastname，也不自动拆分 fullname。通过 T123 将客户字段先传给客户数据接口，付款 POST 携带 customerDataToken；后端按项目 ID:订单号和 token 合并真实 firstName 等字段。已有顶层姓名映射 name 可保留作原始记录，不能再往 Additional 填 firstName=firstName 等固定文字。
 
 订单时间使用 Tilda 的 orderTime，转成 UTC 的 YYYY-MM-DD HH:mm:ss 后发给 PricPay；无效时间返回 400，未传时才使用服务器时间兜底。地址字段映射到 PricPay billing*，配送与账单地址不同的订单不能直接复用。
 
@@ -214,7 +216,7 @@ Gateway order upsert failed
 Payment notification write failed
 ```
 
-如果只看到这些日志，通常是 Neon 连接短暂超时；支付主流程会继续。
+普通日志写入失败时，支付主流程仍会继续。客户数据保存和读取则是创单必需步骤，失败返回 503／504，不再带缺失地址继续创单。
 
 看 Neon 表：
 

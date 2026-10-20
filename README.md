@@ -4,6 +4,14 @@
 
 ## 接口
 
+### 客户数据接收
+
+```text
+POST /api/tilda/customer-data
+```
+
+接收购物车脚本发送的真实客户信息，以完整订单 ID 和随机 token 哈希关联。Cashier 和普通创单均须先取得这份数据；缺失时停止创单。部署后还须按 [T123 安装步骤](docs/tilda-customer-data-install.zh-CN.md) 在 Tilda 加入脚本，并删除 Additional 中七组同名固定客户字段。
+
 ### 普通创单
 
 ```text
@@ -43,9 +51,12 @@ GET /api/pricpay/return
 
 ## 请求示例
 
+以下是安装脚本后支付 POST 的字段示例。customerDataToken 必须来自本次已保存的客户数据，不能直接复制示例值独立发单；客户字段由已验证的对应记录补入。
+
 ```json
 {
-  "orderid": "TILDA-10001",
+  "orderid": "38252103:10001",
+  "customerDataToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "amount": "38.59",
   "currency": "USD",
   "firstName": "Ivan",
@@ -77,7 +88,7 @@ GET /api/pricpay/return
 
 Tilda 的浏览器表单 POST 默认会收到 `303` 跳转并进入 PricPay cashier 页面。调试或服务端调用时可在接口后加 `?response=json`，此时返回上面的 JSON。
 
-`firstName` 优先于旧 `name`；`customerCountry` 优先于 `billingCountry` 和站点固定 `country`，国家代码会去掉首尾空格并转大写。客户字段须传实际值，不能用字面字符串 `firstName` 或 `customerCountry` 代替。地址键当前对应 PricPay 的账单地址，配送地址与账单地址不同时不能直接复用。
+订单号须按 Tilda 顶层 Mapping 使用项目 ID:订单号，例如 38252103:10001。真实客户记录中的 firstName、customerCountry 优先于旧 name、country；国家代码去掉首尾空格并转大写。地址键当前对应 PricPay 的账单地址，配送地址与账单地址不同时不能直接复用。
 
 `orderTime` 使用带时区的 ISO-8601 时间（`Z` 或 `+03:00` 等偏移，秒必填，可带 1 至 3 位毫秒）。网关转成 UTC 的 `YYYY-MM-DD HH:mm:ss`，例如上面的值变为 `2026-10-20 07:15:30`。传入无效日期或缺少时区会返回 HTTP 400；未传或空值时兼容旧请求，使用服务器当前 UTC 时间。原始入参仍保存在订单日志中。
 
@@ -90,6 +101,7 @@ Tilda 的浏览器表单 POST 默认会收到 `303` 跳转并进入 PricPay cash
 - `gateway_orders`：订单主表，保存 Tilda 订单号、PricPay 订单号、金额、Tilda 回调/跳转 URL、当前状态。
 - `gateway_events`：事件日志，保存 Tilda 入参、PricPay 请求参数、签名排序串、签名结果、跳转地址、错误信息。
 - `payment_notifications`：PricPay 异步通知记录，保存原始通知、签名校验结果、是否已转发给 Tilda。
+- `tilda_customer_data`：按订单 ID 与 token 哈希保存的临时客户数据，关联有效期 30 分钟，后续上传清理过期行；原始订单日志额外保留 customerData。
 
 本地应用 schema：
 
@@ -138,9 +150,12 @@ TILDA_NOTIFY_SECRET=Tilda 通知签名密钥
 ```text
 GATEWAY_HEALTH_TOKEN=生产环境 health 接口访问令牌
 GATEWAY_DB_TIMEOUT_MS=1000
+TILDA_SITE_ORIGIN=https://hoteltoiletries.ru
 ```
 
 `GATEWAY_DB_TIMEOUT_MS` 控制日志写库最多等待多久。默认 1000ms；超过后跳过本次数据库日志并写入 Vercel 控制台，避免日志库拖慢支付主流程。
+
+客户数据存储是创单必需步骤，不按可跳过日志处理：写入最多等待 5 秒，Cashier 关联最多等待 8 秒，失败返回 503／504 并停止创单。TILDA_SITE_ORIGIN 可省略，默认是上述店铺 origin，无末尾斜杠。
 
 ## 健康检查
 
@@ -168,4 +183,4 @@ npm run build
 npm start
 ```
 
-在没有 PricPay 商户变量时，`/api/pricpay/create` 和 `/api/pricpay/cashier` 会返回配置错误，这是预期结果；配置完整后才会真实请求 PricPay。
+未安装 T123 或缺少 customerDataToken 时，创单接口返回 400；无对应客户记录时返回 504。通过客户数据检查后才继续检查 PricPay 商户配置并发起真实请求。数据库及浏览器隔离联调步骤见 [安装文档](docs/tilda-customer-data-install.zh-CN.md)。

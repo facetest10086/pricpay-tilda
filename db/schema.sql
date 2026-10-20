@@ -74,3 +74,14 @@ create index if not exists payment_notifications_order_id_idx on payment_notific
 create index if not exists payment_notifications_platform_order_no_idx on payment_notifications (platform_order_no);
 create index if not exists payment_notifications_tilda_order_id_idx on payment_notifications (tilda_order_id);
 create index if not exists payment_notifications_created_at_idx on payment_notifications (created_at desc);
+
+create table if not exists tilda_customer_data (
+  tilda_order_id text not null,
+  token_hash text not null,
+  customer_data jsonb not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '30 minutes'),
+  primary key (tilda_order_id, token_hash)
+);
+
+create index if not exists tilda_customer_data_expires_at_idx on tilda_customer_data (expires_at);

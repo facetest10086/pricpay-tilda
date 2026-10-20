@@ -2,11 +2,11 @@
 
 店铺：`https://hoteltoiletries.ru/`。币种：RUB。核对日期：2026-10-20。
 
-Additional field list 中的 `successUrl` 和 `failUrl` 保留固定链接。客户字段已约定为下表的参数名，后端已适配；Additional 的动态源字段绑定方式仍需检查实际 POST，不能用同名固定字符串冒充客户输入。
+Additional field list 中保留 successUrl 和 failUrl 固定链接，删除七组同名固定客户字段。已实现 T123 脚本 → 客户数据接口 → 按订单 ID/token 关联 → Cashier 的传递方案，部署后按 [安装说明](tilda-customer-data-install.zh-CN.md) 添加脚本并发布购物车页面。
 
 ## 1. 目前缺什么
 
-公开首页 HTML 上次可见表单字段主要是 Name、Email、Phone、Checkbox，未见地区、城市、详细地址、邮编输入；这只是公开首页的检查，不排除其他页面、动态字段或尚未发布的改动。
+你已在购物车增加客户字段；实际支付截图显示 Additional 的同名值被原样发送，导致姓名出现 firstName lastName、邮编出现 zip。问题在数据传递，不能通过重复修改购物车变量名解决。
 
 本项目已经能接收 `lastName`、`state`、`city`、`address`、`zip` 等参数，但没有参数来源时会将对应账单字段留空。这说明“代码支持字段”不等于“已从买家收集并传入”。
 
@@ -19,14 +19,14 @@ Additional field list 中的 `successUrl` 和 `failUrl` 保留固定链接。客
 | 顾客看到的俄文标签 | 建议 Variable name | 输入方式 | 必填建议 | 动态值来源 |
 |---|---|---|---|---|
 | Имя | `firstName` | 姓名或单行输入 | 必填 | 买家输入的名，后端优先于旧 name |
-| Фамилия | `lastName` | 单行输入 | 结合物流及 PricPay 实际要求设置 | 买家输入的姓，不从全名强行猜测 |
+| Фамилия | `lastName` | 单行输入 | 必填 | 买家输入的姓，不从全名强行猜测 |
 | Email | `email` | Email 输入 | 必填 | 买家邮箱 |
 | Телефон | `phone` | 电话输入 | 必填 | 买家电话，面向俄罗斯时核对默认区号设置 |
 | Страна | `customerCountry` | 真实国家选择 | 必填 | 买家实际地址国家，两位代码如 RU；优先于站点固定 country，不编造下拉项编码语法 |
-| Регион / область | `state` | 单行输入或合适的地区选择 | 结合物流及 PricPay 实际要求设置 | 买家实际地区，例如 Московская область |
+| Регион / область | `state` | 单行输入或合适的地区选择 | 可空 | 买家实际地区，例如 Московская область |
 | Город | `city` | 单行输入 | 发货订单建议必填 | 买家实际城市 |
 | Улица, дом, квартира | `address` | 单行或多行输入 | 发货订单建议必填 | 实际街道、门牌和房间信息 |
-| Почтовый индекс | `zip` | 单行文本输入 | 结合实际物流要求设置 | 买家实际邮编，保留字符串形式 |
+| Почтовый индекс | `zip` | 单行文本输入 | 必填 | 买家实际邮编，保留字符串形式 |
 
 上述 Variable name 同时是约定发给本网关的参数名。邮箱和电话已有顶层映射时不重复添加；姓名使用 firstName、lastName 分开采集，不使用 fullname，也不自动猜测拆分。旧 name 仅作为后端兼容备用。
 
@@ -43,21 +43,17 @@ Additional field list 中的 `successUrl` 和 `failUrl` 保留固定链接。客
 | 需核对的位置 | 正确现象 |
 |---|---|
 | Tilda 订单／表单记录 | 能看到客户实际填写的地区、城市、地址和邮编 |
-| 发往 `/api/pricpay/cashier` 的实际 POST | 包含真实的 `firstName`、`lastName`、`customerCountry`、`state`、`city`、`address`、`zip`，不是这些变量名的字面字符串 |
+| 客户数据接口和支付 POST | 客户接口收到真实字段；支付 POST 携带完整项目 ID:订单号和 customerDataToken，服务器按两者精确关联 |
 | 网关 `pricpay.cashier.request` 日志／原始订单记录 | 原始请求保留了这些值 |
 | 网关 `pricpay.cashier.gateway_request` 日志 | `billingState`、`billingCity`、`billingAddress`、`billingZip` 等为客户真实值 |
 
-目前没有从 Tilda 官方通用帮助确认 Additional field list 能用何种语法读取任意购物车自定义字段，因此不把 `{{city}}` 等未经该处界面验证的写法交给你照填。签名 Custom rules 支持双大括号，不代表所有 Value 输入框都支持同样模板语法。
+已新增 POST /api/tilda/customer-data。脚本读取 form.tildaOrderId 和页面项目 ID，不以邮箱、最近订单或 form.tildaTranId 猜测支付订单；在服务器确认数据保存后才提交原付款表单。Cashier 只合并校验过的客户字段，不允许它们覆盖金额、币种或商品。
 
-如果实际支付 POST 没有带出这些字段，就需要补动态传递适配。Tilda 官方支持将表单字段通过 Webhook POST 到自己的服务，也支持在表单提交后读取字段的脚本机制；这些可以作为接入方案，但需要实现接收、校验和与支付订单关联，不能只填一个不存在的接口。
-
-当前项目 API 只有健康检查及 PricPay 的 create、cashier、notify、return，没有专门接收完整 Tilda 地址表单的接口。不要将 Tilda 表单 Webhook 填成 `/api/pricpay/notify`，那是 PricPay 支付结果通知入口。
-
-因此目前能通过 Tilda 配置完成“采集客户地址”，但“这些自定义字段动态进入支付请求”尚未验收；如果模板不支持直接绑定，这段适配属于完成接入所必需的工作，而不是固定字段值能替代的配置。
+此方案不使用 Additional 动态模板语法，也不要求配置表单 Webhook。不要将 /api/pricpay/notify 当成客户数据入口，那是 PricPay 支付结果通知入口。真实数据与 token 缺失时停止创单，避免继续发送错误地址。
 
 ## 4. Country 与俄罗斯收据选项
 
-上方固定 Country 按你的决定暂时保留 GB。后端账单国家现在按 `customerCountry` → `billingCountry` → `country` 取第一个非空值，并去掉首尾空格、转大写；收到真实 customerCountry=RU 时，不会被固定 country=GB 覆盖。若新字段没有传到，旧 country 仍会作为兼容兜底，不能认定 GB 永远不影响请求。
+上方固定 Country 按你的决定暂时保留 GB。底层映射仍按 customerCountry → billingCountry → country 取第一个非空值，但现在 HTTP 创单前必须取得客户数据，customerCountry 为必填。真实 RU 不会被固定 GB 覆盖；客户数据缺失时停止创单，不依赖固定 GB 补齐。
 
 只处理俄罗斯地址且确认账单国家为俄罗斯时可以使用 RU；跨国订单应取得真实账单国家。RUB 是币种，RU 是国家代码，两者不能互相替代。
 

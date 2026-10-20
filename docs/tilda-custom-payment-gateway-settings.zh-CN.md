@@ -12,8 +12,8 @@
 | 通知签名密钥 | 尚未确认 Tilda 实际验签密钥与 Vercel Production 的 TILDA_NOTIFY_SECRET 已一致 | 采用同一个实际值；使用独立通知密钥框时也填相同值 |
 | 成功／失败页面 | 2026-10-20 上次检查两个目标地址均返回 404，尚未收到发布成功的确认 | 创建并发布 payment-success、payment-failed 两页，再打开网址确认 |
 | 商户身份 | 截图商户号与本地一致，也与 PricPay 官方通知文档的示例商户号相同 | 确认它确实由 PricPay 分配给你；一致并不能证明账号权限有效 |
-| Country | 你决定上方固定值保留 GB；已新增客户国家字段约定 | 确认真实 customerCountry 已传入并优先使用，未传时仍会兜底到旧 country |
-| 地址数据 | 你已反馈完成配置；后端已适配，尚未验收实际动态传递 | 核对支付 POST 和上游 billing* 的真实值，不将变量名字符串当作客户数据 |
+| Country | 你决定上方固定值保留 GB；客户国家由脚本传递 | 确认真实 customerCountry 已传入；缺少必需客户数据时停止创单 |
+| 地址数据 | 实测 Additional 同名文字被作为固定值发送；已实现脚本与专用接收接口 | 删除七组固定文字，安装下方 T123，发布后核对真实客户数据 |
 | Tilda 通知地址 | 只读且尚未看到生成后的实际地址，这是待确认项，不是手工填写错误 | 按平台流程保存配置后重新打开，读取生成的地址，并检查真实订单的 notifyUrl |
 
 **以下项目不再列为错误：你已确认商品 Price 改为 `goodsPrice`；RUB 已确认正确；顶层字段名称、取消共用通知签名，以及 `paid=true`、`transactionid / Custom`、`OK / ERROR` 已按最新信息记录。** 后续若改动，以实际配置和真实请求为准。
@@ -28,7 +28,7 @@
 | Secret for order sign | Tilda 生成订单签名使用的密钥 | 可以使用已生成的独立 Tilda 密钥，取本地 `.env.tilda-signing.local` 等号后完整值 | 当前服务器尚未校验 Tilda 订单签名；填入密钥不会自动启用验证 |
 | Notification URL | Tilda 接收支付通知的地址 | 这是只读项，保持系统管理，不手工填 | 保存后重新打开查看生成的地址，不填本网关 /notify 或 /return |
 | Currency | 实际收款币种 | `RUB` | 你已确认，保留；还需 PricPay 实际商户支持 RUB |
-| Country | 此支付配置的固定国家 | 按你的决定先保留 `GB` | 客户真实国家从 customerCountry 传入；后端只在无新国家字段时兜底到这里 |
+| Country | 此支付配置的固定国家 | 按你的决定先保留 `GB` | 客户真实国家从 customerCountry 传入；HTTP 创单不以固定 GB 替代缺失的客户数据 |
 | Payment widget language | 组件语言 | 面向俄罗斯买家建议 `RU` | 当前网关记录 language，不用它控制 PricPay 收银台语言 |
 
 ### 本次使用的密钥怎样对应
@@ -78,7 +78,7 @@ Notification URL 在保存后生成的操作可见 [Tap2Pay](https://tap2pay.me/
 | Login | `login` | 无 | 保留原值供记录；PricPay 商户号仍从服务器环境变量读取 |
 | Currency | `currency` | `USD/EUR/...` | 发给 PricPay 的 transactionCurrency；实际值来自上方 RUB |
 | Language | `language` | `Upper case` | 保留语言原值 |
-| Country | `country` | `Upper case` | 旧兼容兜底；customerCountry、billingCountry 优先 |
+| Country | `country` | `Upper case` | 保留原始固定值，不覆盖脚本关联得到的真实 customerCountry |
 | Notification URL | `notifyUrl` | 无 | 保存 Tilda 实际通知目标，不直接作为 PricPay 通知 URL |
 | Order number | `orderid` | `<project ID>:<order ID>` | 原样转成 PricPay 的 orderNumber |
 | Order description | `description` | Max length 先留空 | 没传商品数组时用作默认商品名称 |
@@ -92,7 +92,7 @@ Notification URL 在保存后生成的操作可见 [Tap2Pay](https://tap2pay.me/
 
 以上顶层名称按最新信息可保留。不要把 `amount` 改成 `transactionAmount`，也不要把 `currency` 改成 `transactionCurrency`：当前对应取值函数不识别这两个上游名称。
 
-账单国家取值优先级为 customerCountry → billingCountry → country。customerCountry 应来自客户真实国家，不能把站点固定国家视为每位客户的实际国家。
+底层账单国家取值优先级为 customerCountry → billingCountry → country；实际 HTTP 创单前必须取得已保存的客户记录，其中 customerCountry 为必填。缺少记录时停止创单，不把站点固定国家视为每位客户的实际国家。
 
 订单时间已使用 orderTime，要求带 Z 或 +03:00 等时区偏移、精确到秒，可带 1 至 3 位毫秒。例如 2026-10-20T10:15:30+03:00 转成 UTC 的 2026-10-20 07:15:30。无效日期或缺少时区返回 HTTP 400；未传或空值时兼容旧请求，使用服务器当前 UTC 时间。原始参数仍保存在订单日志中。
 
@@ -154,7 +154,7 @@ PricPay 示例还包含 `productUrl`、`productCategory`；当前截图没有对
 
 | 其他设置 | 如何处理 |
 |---|---|
-| `firstName`、`lastName`、`customerCountry`、`state`、`city`、`address`、`zip` | 后端已支持这些参数；Additional 动态源字段绑定仍需实际 POST 确认，不填只有键的项目或同名固定字符串 |
+| `firstName`、`lastName`、`customerCountry`、`state`、`city`、`address`、`zip` | 从 Additional 删除这七组同名固定值；购物车变量保留，交给下方脚本读取真实值 |
 | 已有 URL 环境变量 | 若用 TILDA_SUCCESS_URL、TILDA_FAILURE_URL、TILDA_PENDING_URL 兜底，可不重复传对应页面参数；订单参数优先 |
 
 在 ST100 → Content → Input fields 中，按以下约定收集客户数据；约定发给本网关的参数名与表单 Variable name 一致：
@@ -171,7 +171,13 @@ PricPay 示例还包含 `productUrl`、`productCategory`；当前截图没有对
 
 姓名按 firstName、lastName 分开收集；邮箱和电话已有 email、phone 映射时不重复添加。发货订单应按实际物流要求将城市、详细地址、邮编等设置为必填。表单采集与发送到支付网关是两步：发布后既要在 Tilda 订单中看到这些值，也要确认 `/api/pricpay/cashier` 的实际 POST 含真实值。仅给表单变量命名，不保证自定义网关会自动收到所有自定义字段。
 
-目前没有验证该 Additional 的 Value 支持任意购物车动态变量，因此不要直接填写 `{{city}}`。如果实际支付请求没有地址字段，需要补传递适配；当前项目也没有专用的完整 Tilda 表单接收接口。[地址采集与传递说明](tilda-customer-address-setup.zh-CN.md)列出具体步骤和仍未验收的链路。
+已确认当前 Additional 和齿轮没有提供截图所假定的源字段／目标字段绑定。部署新程序后，在实际包含购物车的页面或其公共页脚添加 T123，内容为：
+
+```html
+<script src="https://pricpay-tilda.vercel.app/tilda-customer-data.js" defer></script>
+```
+
+保存并发布。脚本先将真实客户字段发送到 /api/tilda/customer-data，服务器保存成功后才放行支付 POST，并附加随机 customerDataToken。Cashier 按完整项目 ID:订单号与 token 关联；缺少数据则停止创单，邮箱和电话还会与原支付请求核对。姓、城市、详细地址、邮编和国家须有真实值，地区可空。此方案无需 Forms → Webhook。[完整安装和排错步骤](tilda-customer-data-install.zh-CN.md)。
 
 不要在附加字段中发送 PricPay 密钥、数据库连接串或健康检查令牌。
 
@@ -318,7 +324,7 @@ Show field 控制密钥输入框显示，Same for notify signature 控制签名�
 6. 完成测试支付，确认 PricPay 异步通知验签成功，Tilda 后台订单也实际标为已支付。
 7. 查看 Tilda 通知响应状态和正文，不能只依据一次跳转或一条 forwarded 日志判断成功。
 
-当前实现仍有两个已记录限制：Tilda 订单入站签名尚未验证；转发通知后未核验 Tilda 的 HTTP 成功状态或 `OK` 正文。后者导致 `tilda.notify.forwarded`、`forwardedToTilda: true` 只能证明发出请求并收到响应。本轮只改配置文档，不将这些限制写成已经修复。
+当前实现仍有两个已记录限制：Tilda 订单入站签名尚未验证；转发通知后未核验 Tilda 的 HTTP 成功状态或 `OK` 正文。后者导致 `tilda.notify.forwarded`、`forwardedToTilda: true` 只能证明发出请求并收到响应。客户数据脚本与订单关联不代表这些限制已修复。
 
 ## 附录：服务器配置和核对依据
 
@@ -333,6 +339,7 @@ Show field 控制密钥输入框显示，Same for notify signature 控制签名�
 | GATEWAY_HEALTH_TOKEN | 现有健康检查令牌 |
 | GATEWAY_DB_TIMEOUT_MS | 当前联调建议显式设 10000；代码默认仍为 1000 |
 | TILDA_NOTIFY_SECRET | 与 Tilda 实际通知验签密钥相同 |
+| TILDA_SITE_ORIGIN | 客户数据来源 origin，默认 https://hoteltoiletries.ru，无末尾斜杠 |
 | TILDA_NOTIFY_URL | 可选兜底；真实订单的 notifyUrl 优先 |
 | TILDA_SUCCESS_URL / TILDA_FAILURE_URL / TILDA_PENDING_URL | 对应店铺返回页的可选兜底 |
 

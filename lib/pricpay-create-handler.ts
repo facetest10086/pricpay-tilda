@@ -12,6 +12,8 @@ import {
   type PricpayCreateMode,
 } from '@/lib/pricpay'
 import { recordGatewayEvent, updateGatewayOrder, upsertGatewayOrder } from '@/lib/gateway-log'
+import { CustomerDataError, resolveCustomerOrder } from '@/lib/tilda-customer-data'
+import { findCustomerData } from '@/lib/tilda-customer-store'
 
 function publicCheckoutResponse(result: Awaited<ReturnType<typeof submitPricpayCheckout>>) {
   const orderNo = result.pricpayOrderNo || result.orderNumber
@@ -35,7 +37,8 @@ export async function handlePricpayCreate(request: Request, mode: PricpayCreateM
   let tildaOrderId = ''
 
   try {
-    const order = parseBody(await request.text(), request.headers.get('content-type') ?? '')
+    const rawOrder = parseBody(await request.text(), request.headers.get('content-type') ?? '')
+    let order = rawOrder
     tildaOrderId = getOrderNumber(order)
     const amount = getOrderAmount(order)
     const currency = getOrderCurrency(order)
@@ -54,6 +57,7 @@ export async function handlePricpayCreate(request: Request, mode: PricpayCreateM
       return NextResponse.json({ ok: false, error: 'Missing Tilda order id' }, { status: 400 })
     }
 
+    order = await resolveCustomerOrder(order, findCustomerData)
     const prepared = preparePricpayCheckout(order, request.url, mode)
     const savedOrder = await upsertGatewayOrder({
       tildaOrderId,
@@ -67,7 +71,11 @@ export async function handlePricpayCreate(request: Request, mode: PricpayCreateM
       tildaPendingUrl: urls.pendingUrl,
       pricpayNotifyUrl: prepared.notifyUrl,
       pricpayReturnUrl: prepared.returnUrl,
-      rawTildaOrder: order,
+      rawTildaOrder: { ...rawOrder, customerData: {
+        firstName: order.firstName, lastName: order.lastName, customerCountry: order.customerCountry,
+        state: order.state, city: order.city, address: order.address, zip: order.zip,
+        email: order.email, phone: order.phone,
+      } },
     })
     orderId = savedOrder?.id
 
@@ -143,17 +151,18 @@ export async function handlePricpayCreate(request: Request, mode: PricpayCreateM
     return NextResponse.redirect(result.redirectUrl, { status: 303 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to create payment'
+    const status = error instanceof CustomerDataError ? error.status : 400
     await updateGatewayOrder(orderId, { status: 'create_error', lastError: message })
     await recordGatewayEvent({
       eventType: `pricpay.${mode}.error`,
       direction: 'internal',
       endpoint,
       method: 'POST',
-      statusCode: 400,
+      statusCode: status,
       orderId,
       tildaOrderId,
       errorMessage: message,
     })
-    return NextResponse.json({ ok: false, error: message }, { status: 400 })
+    return NextResponse.json({ ok: false, error: message }, { status })
   }
 }
