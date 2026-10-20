@@ -1,5 +1,7 @@
 # Tilda 对接 PricPay Cashier 指南
 
+完整的逐项配置请阅读 [Tilda 自定义支付网关设置](tilda-custom-payment-gateway-settings.zh-CN.md)。该文档覆盖字段映射、商品内部字段、运费折扣、订单签名和支付结果通知，并说明当前代码的验签及通知应答判定缺口。
+
 ## 推荐链路
 
 当前推荐使用 PricPay 收银台接口：
@@ -60,8 +62,10 @@ TILDA_SUCCESS_URL=https://你的站点/success
 TILDA_FAILURE_URL=https://你的站点/fail
 TILDA_PENDING_URL=https://你的站点/pending
 TILDA_NOTIFY_SECRET=Tilda 通知签名密钥
-GATEWAY_DB_TIMEOUT_MS=1000
+GATEWAY_DB_TIMEOUT_MS=10000
 ```
+
+这里的 10000 是当前联调的显式配置建议；代码默认仍为 1000。首次数据库调用包含 schema 检查，不能把一次超时直接等同于连接串错误。
 
 ## Tilda 自定义支付网关配置
 
@@ -128,17 +132,17 @@ pendingUrl   Tilda 支付处理中页，可选
 productInformation
 ```
 
-如果 Tilda 传的是 `products` 或 `items` 数组，网关也会转换成 PricPay 的 `productInformation`。
+如果 Tilda 传的是 `products` 或 `items`，网关会将外层封装为 PricPay 的 `productInformation`，但不会重命名商品内部字段。Tilda 商品内部应映射为 `goodsName`、`goodsPrice`、`quantity`；JSON 字符串会原样透传。
 
 ## 签名设置
 
-Tilda 发给本项目的创单请求可以先不强制校验签名，因为 PricPay 密钥只在服务端使用，不暴露给 Tilda。真正需要严格校验的是 PricPay 回调签名，代码会按 PricPay 文档进行 MD5 校验：
+当前代码尚未校验 Tilda 发给本项目的订单签名。这是正式接入前需要补齐的缺口，不能把 PricPay 密钥保存在服务端视为可以省略 Tilda 入站验签的理由。已有的签名验证用于 PricPay 异步通知：
 
 ```text
 按字段名排序 -> 去掉空值 -> key=value& 拼接 -> 追加 secret=密钥 -> MD5 大写
 ```
 
-如果你在 Tilda 模板里启用了订单签名，请设置 `TILDA_NOTIFY_SECRET`，并保持 Tilda 后台的通知签名规则与项目内 `toTildaNotification` 生成的字段一致。
+`TILDA_NOTIFY_SECRET` 用于网关发回 Tilda 的通知签名，不会启用订单入站验签。通知验签规则须与 `toTildaNotification` 一致；当前通知额外携带未签入的 `target`，应在 Tilda 通知验签中排除它和 `signature`。具体规则及可复核示例见完整逐项配置文档。
 
 ## PricPay 后台回调地址
 
@@ -230,7 +234,7 @@ configuration_error           Vercel 环境变量缺失
 
 ## 仍需实测的地方
 
-本地已经验证 Next.js 路由、构建、Neon 表结构、日志容错和通知 `ok` 响应。但没有 PricPay 测试商户密钥时，无法完成真实创单、真实 cashier 跳转和真实异步通知签名闭环。
+此前已验证 Next.js 路由、构建、Neon 表结构及部分错误响应；本轮另验证了本地字段转换和通知签名示例。真实 cashier 创单、支付和 Tilda 通知验签闭环仍须实际联调确认。当前 `tilda.notify.forwarded` 记录也没有检查 Tilda 的 HTTP 成功状态或 `OK` 正文，需同时查看实际响应及 Tilda 订单状态。
 
 正式上线前至少跑一笔 PricPay 测试支付，并确认：
 
