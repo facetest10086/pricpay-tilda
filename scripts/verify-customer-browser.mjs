@@ -37,10 +37,11 @@ const gateway = createServer(async (request, response) => {
     }
     return
   }
-  if (request.url === '/api/pricpay/cashier') {
+  if (request.url === '/api/pricpay/cashier' || request.url === '/api/pricpay/create') {
     const order = parseBody(body, 'application/x-www-form-urlencoded')
     const merged = await resolveCustomerOrder(order, async (id, hash) => customers.get(`${id}:${hash}`))
-    payments.push(preparePricpayCheckout(merged, 'https://gateway.example.test/api/pricpay/cashier', 'cashier').requestPayload)
+    const mode = request.url.endsWith('/create') ? 'create' : 'cashier'
+    payments.push(preparePricpayCheckout(merged, 'https://gateway.example.test' + request.url, mode).requestPayload)
     response.end('local payment fixture')
     return
   }
@@ -80,7 +81,7 @@ try {
       if (!scenario.skipCapture) cart.dispatchEvent(new Event('tildaform:aftersuccess', { bubbles: true }))
       const payment = document.createElement('form')
       payment.method = 'POST'
-      payment.action = gatewayOrigin + '/api/pricpay/cashier'
+      payment.action = gatewayOrigin + (scenario.paymentPath || '/api/pricpay/cashier')
       for (const [name, value] of Object.entries({ orderid: scenario.paymentOrderId ?? ('38252103:' + orderId), amount: '27596.96', currency: 'RUB',
         country: 'GB', email: 'buyer@example.test', phone: '+79991234567' })) {
         const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value
@@ -99,10 +100,21 @@ try {
   assert.equal(payments[0].billingFirstName, '\u0410\u043b\u0435\u043a\u0441\u0430\u043d\u0434\u0440')
   assert.equal(payments[0].billingZip, '101000')
   assert.equal(payments[0].transactionAmount, '27596.96')
+  // Production incident: Tilda displayed T202610-1730916364 while the payment form used project:1730916364.
+  for (const [paymentPath, useRequestSubmit] of [['/api/pricpay/cashier', false], ['/api/pricpay/create', true]]) {
+    const paymentsBefore = payments.length
+    await checkout('1730916364', undefined, useRequestSubmit, { cartOrderId: 'T202610-1730916364', paymentPath, clearCart: true })
+    await page.waitForURL(gatewayOrigin + paymentPath, { timeout: 5000 })
+    assert.equal(payments.length, paymentsBefore + 1)
+    assert.equal(payments.at(-1).orderNumber, '38252103:1730916364')
+    assert.equal(payments.at(-1).billingFirstName, '\u0410\u043b\u0435\u043a\u0441\u0430\u043d\u0434\u0440')
+    assert.equal(payments.at(-1).billingZip, '101000')
+    assert.equal(payments.at(-1).transactionAmount, '27596.96')
+  }
   await page.setViewportSize({ width: 390, height: 844 })
   await checkout('10002', undefined, true)
   await page.waitForURL(`${gatewayOrigin}/api/pricpay/cashier`)
-  assert.equal(payments.length, 2)
+  assert.equal(payments.length, 4)
   for (const [index, field, label] of [[0, 'zip', '\u041f\u043e\u0447\u0442\u043e\u0432\u044b\u0439 \u0438\u043d\u0434\u0435\u043a\u0441'], [1, 'customerCountry', '\u0421\u0442\u0440\u0430\u043d\u0430']]) {
     await checkout(String(10003 + index), field)
     for (let attempt = 0; attempt < 100 && dialogs.length <= index; attempt++) await delay(50)
@@ -110,7 +122,7 @@ try {
     assert.ok(dialogs[index].includes(label))
     assert.ok(!dialogs[index].includes('Invalid customer field'))
     assert.deepEqual(customerResponses.at(-1), { status: 400, field })
-    assert.equal(payments.length, 2)
+    assert.equal(payments.length, 4)
     assert.equal(page.url(), shopOrigin + '/')
   }
   const diagnosticKeys = ['version', 'stage', 'successEvents', 'capturedOrders', 'cartOrderFormat',
@@ -120,6 +132,9 @@ try {
     [{ cartOrderId: '0', clearCart: true }, 'CART_ORDER_MISSING'],
     [{ paymentOrderId: '', clearCart: true }, 'PAYMENT_ORDER_MISSING'],
     [{ paymentOrderId: '38252103:99999', clearCart: true }, 'ORDER_NOT_CAPTURED'],
+    [{ cartOrderId: 'T202610-1730916364', paymentOrderId: '38252103:99999', clearCart: true }, 'ORDER_NOT_CAPTURED'],
+    [{ cartOrderId: 'T202610-1730916364', paymentOrderId: '99999:1730916364', clearCart: true }, 'ORDER_NOT_CAPTURED'],
+    [{ cartOrderId: 'T202613-1730916364', clearCart: true }, 'CART_ORDER_MISSING'],
   ]) {
     const uploadsBefore = customerResponses.length
     const dialogsBefore = dialogs.length
@@ -131,7 +146,7 @@ try {
     assert.deepEqual(Object.keys(diagnostics).sort(), diagnosticKeys)
     assert.ok(dialogs[dialogsBefore].includes('PD_' + code))
     assert.equal(customerResponses.length, uploadsBefore)
-    assert.equal(payments.length, 2)
+    assert.equal(payments.length, 4)
   }
   for (const [fixture, code, status] of [
     [{ status: 503, contentType: 'application/json', body: '{"ok":false}' }, 'UPLOAD_REJECTED', 503],
@@ -149,13 +164,14 @@ try {
     assert.equal(diagnostics.capturedOrders, 1)
     assert.deepEqual(Object.keys(diagnostics).sort(), diagnosticKeys)
     assert.ok(dialogs[dialogsBefore].includes('PD_' + code))
-    assert.equal(payments.length, 2)
+    assert.equal(payments.length, 4)
     await page.unroute('**/api/tilda/customer-data')
   }
   assert.deepEqual(errors, [])
   console.log('PASS: real desktop/mobile browser, Russian country name -> RU, Cyrillic customer fields, unchanged amount, duplicate-script/submit suppression, localized zip/country errors')
   console.log('Storage and payment HTTP services were local fixtures; no database or real payment was used.')
   console.log('PASS: missing/mismatched orders, rejected/non-JSON/network responses stop payment; diagnostic codes survive Tilda form cleanup and expose only approved metadata')
+  console.log('PASS: Tilda TYYYYMM-order references join exact project:order payment forms on both endpoints; other orders/projects remain blocked')
 } finally {
   if (browser) await browser.close()
   gateway.closeAllConnections()

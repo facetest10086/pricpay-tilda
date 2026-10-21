@@ -5,10 +5,11 @@
   if (!script || !script.src) return;
   var gateway = new URL(script.src).origin;
   var orders = new Map();
+  var tildaOrderReference = /^T\d{4}(?:0[1-9]|1[0-2])-([1-9]\d*)$/;
   var nativeSubmit = HTMLFormElement.prototype.submit;
   window.__pricpayCustomerBridge = true;
   var diagnostics = window.__pricpayCustomerDiagnostics = {
-    version: '2026-10-21.1', stage: 'ready', successEvents: 0, capturedOrders: 0,
+    version: '2026-10-21.2', stage: 'ready', successEvents: 0, capturedOrders: 0,
     cartOrderFormat: 'not-seen', paymentOrderFormat: 'not-seen', matched: false,
     code: null, status: null, field: null
   };
@@ -19,6 +20,7 @@
 
   function orderFormat(orderId) {
     if (!orderId) return 'missing';
+    if (tildaOrderReference.test(orderId)) return 'tilda-reference';
     if (/^[1-9]\d*:[1-9]\d*$/.test(orderId)) return 'project:order';
     if (/^[1-9]\d*$/.test(orderId)) return 'order-only';
     return 'other';
@@ -32,6 +34,8 @@
 
   function canonicalOrderId(value, projectId) {
     value = String(value || '');
+    var reference = value.match(tildaOrderReference);
+    if (reference) value = reference[1];
     if (/^[1-9]\d*:[1-9]\d*$/.test(value)) return value;
     if (/^[1-9]\d*$/.test(value) && /^[1-9]\d*$/.test(projectId)) return projectId + ':' + value;
     return '';
