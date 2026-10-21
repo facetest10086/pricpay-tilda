@@ -198,7 +198,7 @@ https://pricpay-tilda.vercel.app/api/neon/health?details=1&token=你的 GATEWAY_
 
 3. 用户应跳转到 PricPay cashier。
 
-4. 支付完成后，用户应被 `/api/pricpay/return` 带回 Tilda 成功/失败/处理中页面。
+4. `/api/pricpay/return` 只在服务端记录已验签、已核对金额和币种的成功回调后带回成功页。失败或取消提示带回失败页；未确认付款时进入处理中页，未配置则返回商店首页。返回参数不更新付款状态，单独传入 SUCCESS 或 100 不代表已经收款。
 
 5. PricPay 异步通知应进入 `/api/pricpay/notify`，并在 Neon 里写入：
 

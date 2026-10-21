@@ -431,6 +431,27 @@ export async function findGatewayOrder(params: { tildaOrderId?: string; pricpayO
   }
 }
 
+export async function hasVerifiedGatewayPayment(order: GatewayOrderRecord | undefined): Promise<boolean> {
+  const sql = getSql()
+  if (!sql || !order?.transactionAmount || !order.transactionCurrency) return false
+  try {
+    return await withDatabaseTimeout((async () => {
+      const rows = (await sql`
+        select exists (
+          select 1 from gateway_events
+          where order_id = ${order.id} and tilda_order_id = ${order.tildaOrderId}
+            and event_type = 'pricpay.notify.amount_verified' and status_code = 200
+            and (response_body->>'normalizedAmount')::numeric = ${order.transactionAmount}::numeric
+            and upper(response_body->>'currency') = upper(${order.transactionCurrency})
+        ) as verified`) as { verified: boolean }[]
+      return rows[0]?.verified === true
+    })(), 'Verified payment lookup')
+  } catch (error) {
+    console.error('Verified payment lookup failed:', errorMessage(error, 'Unable to confirm payment'))
+    return false
+  }
+}
+
 export async function recordPaymentNotification(input: PaymentNotificationInput) {
   const sql = getSql()
   if (!sql) return undefined

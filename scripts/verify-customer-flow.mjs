@@ -61,6 +61,7 @@ const server = spawn(process.execPath, [require.resolve('next/dist/bin/next'), '
     PRICPAY_PUB_ID: 'test', PRICPAY_CASHIER_ENDPOINT: `${shop}/upstream`,
     PRICPAY_CREATE_ENDPOINT: `${shop}/upstream`, PRICPAY_CASHIER_BASE_URL: `${shop}/cashier`,
     TILDA_NOTIFY_URL: `${shop}/tilda-ok`, TILDA_NOTIFY_SECRET: 'independent-test-tilda-key',
+    TILDA_SUCCESS_URL: `${shop}/payment-success`, TILDA_FAILURE_URL: `${shop}/payment-failed`, TILDA_PENDING_URL: '',
     PRICPAY_NOTIFY_AMOUNT_UNIT: 'minor',
     TILDA_SITE_ORIGIN: shop, GATEWAY_DB_TIMEOUT_MS: '10000' },
   stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
@@ -144,11 +145,24 @@ try {
     })
   }
   const storedStatus = async (id) => (await sql.query('select status, last_error from gateway_orders where tilda_order_id = $1', [id]))[0]
+  const returnFromCashier = (id, status = '') => fetch(`${gateway}/api/pricpay/return?` +
+    new URLSearchParams({ order: id, orderStatus: status }), { redirect: 'manual' })
+  for (const status of ['PROCESSING', 'SUCCESS', '100', 'CANCELLED']) {
+    const returned = await returnFromCashier(submission.orderId, status)
+    assert.equal(returned.status, 307)
+    assert.equal(new URL(returned.headers.get('location')).pathname, status === 'CANCELLED' ? '/payment-failed' : '/')
+    assert.notEqual(new URL(returned.headers.get('location')).searchParams.get('status'), 'paid')
+    assert.equal((await storedStatus(submission.orderId)).status, 'redirect_created')
+  }
+  await sql.query("update gateway_orders set status = 'paid' where tilda_order_id = $1", [submission.orderId])
+  assert.equal(new URL((await returnFromCashier(submission.orderId, '100')).headers.get('location')).searchParams.get('status'), 'pending')
+  await sql.query("update gateway_orders set status = 'redirect_created' where tilda_order_id = $1", [submission.orderId])
   assert.equal((await notify(submission.orderId, {}, false)).status, 401)
   assert.equal((await storedStatus(submission.orderId)).status, 'redirect_created')
   assert.equal((await notify(submission.orderId, { amount: '1490.00' })).status, 400)
   assert.equal((await storedStatus(submission.orderId)).status, 'notify_amount_mismatch')
   assert.equal((await notify(submission.orderId, { currency: 'USD' })).status, 400)
+  assert.equal(new URL((await returnFromCashier(submission.orderId, '100')).headers.get('location')).searchParams.get('status'), 'pending')
   assert.equal(receivedNotifications.length, 0)
   assert.equal((await notify(submission.orderId)).status, 200)
   assert.equal(receivedNotifications.length, 1)
@@ -157,6 +171,13 @@ try {
   const signatureBase = `amount=1490.00&orderid=${submission.orderId}&paid=true&transactionid=TX_TEST_${submission.orderId}&secret=independent-test-tilda-key`
   assert.equal(notification.signature, createHash('md5').update(signatureBase).digest('hex').toUpperCase())
   assert.deepEqual(await storedStatus(submission.orderId), { status: 'paid', last_error: null })
+  const mismatchedReturn = await fetch(`${gateway}/api/pricpay/return?` + new URLSearchParams({
+    order: submission.orderId, orderNo: 'TX_DIFFERENT_ORDER', orderStatus: '100',
+  }), { redirect: 'manual' })
+  assert.equal(new URL(mismatchedReturn.headers.get('location')).searchParams.get('status'), 'pending')
+  const paidReturn = await returnFromCashier(submission.orderId, 'CANCELLED')
+  assert.equal(new URL(paidReturn.headers.get('location')).searchParams.get('status'), 'paid')
+  assert.deepEqual(await storedStatus(submission.orderId), { status: 'paid', last_error: null })
   assert.equal((await notify(orderId('2'), { orderStatus: '103' }, true, { orderNumber: submission.orderId })).status, 200)
   assert.equal((await storedStatus(submission.orderId)).status, 'paid')
   assert.equal((await storedStatus(orderId('2'))).status, 'pending')
@@ -164,6 +185,8 @@ try {
   assert.equal((await notify(orderId('2'))).status, 502)
   assert.equal((await storedStatus(orderId('2'))).status, 'tilda_notify_error')
   assert.match((await storedStatus(orderId('2'))).last_error, /Signature not correct/)
+  assert.equal(new URL((await returnFromCashier(orderId('2'), 'PROCESSING')).headers.get('location')).searchParams.get('status'), 'paid')
+  assert.equal((await storedStatus(orderId('2'))).status, 'tilda_notify_error')
   const acceptedRows = await sql.query(`select count(*)::int as total from payment_notifications
     where tilda_order_id = $1 and forwarded_to_tilda`, [orderId('2')])
   assert.equal(acceptedRows[0].total, 0)

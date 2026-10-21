@@ -152,6 +152,8 @@ PricPay 示例还包含 `productUrl`、`productCategory`；当前截图没有对
 
 不要将本网关的 `/api/pricpay/return` 填成成功页，网关会先处理该返回请求，再跳到你的店铺页面。页面展示不能单独证明已经收款。
 
+返回接口只在找到该订单已验签、已核对金额和币种的成功回调记录时跳成功页。未确认付款时，即使浏览器传入 `SUCCESS` 或 `100`，也进入处理中页；未配置 pendingUrl / TILDA_PENDING_URL 时返回商店首页，不再兜底到成功页。明确失败或取消的返回提示进入失败页，未配置失败页时返回商店首页。浏览器返回参数不更新订单支付状态；已确认付款优先于浏览器的取消提示。
+
 | 其他设置 | 如何处理 |
 |---|---|
 | `firstName`、`lastName`、`customerCountry`、`state`、`city`、`address`、`zip` | 从 Additional 删除这七组同名固定值；购物车变量保留，交给下方脚本读取真实值 |

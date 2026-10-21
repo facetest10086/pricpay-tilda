@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server'
-import { findGatewayOrder, recordGatewayEvent, updateGatewayOrder } from '@/lib/gateway-log'
-import { pricpayStatusToOrderStatus, value } from '@/lib/pricpay'
+import { findGatewayOrder, hasVerifiedGatewayPayment, recordGatewayEvent } from '@/lib/gateway-log'
+import { value } from '@/lib/pricpay'
+import { resolvePricpayReturn } from '@/lib/pricpay-return'
 
 export const runtime = 'nodejs'
-
-function redirectFallback(requestUrl: string) {
-  return new URL('/', requestUrl).toString()
-}
 
 function appendReturnParams(target: string, requestUrl: string, params: Record<string, string>) {
   const url = new URL(target, requestUrl)
@@ -16,36 +13,23 @@ function appendReturnParams(target: string, requestUrl: string, params: Record<s
   return url.toString()
 }
 
-function chooseRedirectUrl(orderStatus: string, order: Awaited<ReturnType<typeof findGatewayOrder>>, requestUrl: string) {
-  if (orderStatus === '100' || order?.status === 'paid') {
-    return order?.tildaSuccessUrl || process.env.TILDA_SUCCESS_URL || redirectFallback(requestUrl)
-  }
-  if (orderStatus === '120' || order?.status === 'failed') {
-    return order?.tildaFailureUrl || process.env.TILDA_FAILURE_URL || redirectFallback(requestUrl)
-  }
-  return order?.tildaPendingUrl || order?.tildaSuccessUrl || process.env.TILDA_PENDING_URL || process.env.TILDA_SUCCESS_URL || redirectFallback(requestUrl)
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url)
   const params = Object.fromEntries(url.searchParams.entries())
   const tildaOrderId = value(params, 'orderNumber', 'order', 'merchantOrderNo')
   const pricpayOrderNo = value(params, 'platformOrderNo', 'orderNo')
   const orderStatus = value(params, 'orderStatus')
-  const order = await findGatewayOrder({ tildaOrderId, pricpayOrderNo })
-  const nextStatus = orderStatus ? pricpayStatusToOrderStatus(orderStatus) : 'returned'
-
-  if (order?.id && orderStatus) {
-    await updateGatewayOrder(order.id, {
-      status: nextStatus,
-      pricpayOrderNo,
-      pricpayResponse: params,
-    })
-  }
-
-  const redirectUrl = appendReturnParams(chooseRedirectUrl(orderStatus, order, request.url), request.url, {
+  const found = await findGatewayOrder({ tildaOrderId, pricpayOrderNo })
+  const order = found && (!tildaOrderId || found.tildaOrderId === tildaOrderId) &&
+    (!pricpayOrderNo || found.pricpayOrderNo === pricpayOrderNo) ? found : undefined
+  const outcome = resolvePricpayReturn({
+    order, reportedStatus: orderStatus, verifiedPaid: await hasVerifiedGatewayPayment(order), requestUrl: request.url,
+    defaults: { successUrl: process.env.TILDA_SUCCESS_URL, failureUrl: process.env.TILDA_FAILURE_URL,
+      pendingUrl: process.env.TILDA_PENDING_URL, siteOrigin: process.env.TILDA_SITE_ORIGIN },
+  })
+  const redirectUrl = appendReturnParams(outcome.target, request.url, {
     orderid: tildaOrderId || order?.tildaOrderId || '',
-    status: orderStatus || order?.status || '',
+    status: outcome.status,
     pricpayOrderNo,
   })
 
@@ -54,7 +38,7 @@ export async function GET(request: Request) {
     direction: 'inbound',
     endpoint: '/api/pricpay/return',
     method: 'GET',
-    statusCode: 302,
+    statusCode: 307,
     orderId: order?.id,
     tildaOrderId: tildaOrderId || order?.tildaOrderId,
     pricpayOrderNo,
@@ -62,5 +46,7 @@ export async function GET(request: Request) {
     redirectUrl,
   })
 
-  return NextResponse.redirect(redirectUrl)
+  const response = NextResponse.redirect(redirectUrl)
+  response.headers.set('Cache-Control', 'no-store')
+  return response
 }
