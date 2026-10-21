@@ -202,7 +202,7 @@ function buildPricpayOrder(order: TildaOrder, requestUrl: string, mode: PricpayC
   if (mode === 'create') {
     params.mode = config.createMode
     params.paymentMethodCode = config.paymentMethodCode
-    params.pubId = config.pubId
+    if (config.createMode === 'EPP') params.pubId = config.pubId
   }
 
   return { params, notifyUrl, returnUrl }
@@ -305,7 +305,8 @@ export function toTildaNotification(params: Record<string, unknown>, target: str
 
 export function isConfigured(mode: PricpayCreateMode) {
   const commonConfigured = Boolean(config.merchantNo && config.secret)
-  return mode === 'cashier' ? commonConfigured : Boolean(commonConfigured && config.pubId)
+  return mode === 'cashier' ? commonConfigured : Boolean(commonConfigured &&
+    (config.createMode === 'HPP' || (config.createMode === 'EPP' && config.pubId)))
 }
 
 export function parseBody(raw: string, contentType: string): TildaOrder {

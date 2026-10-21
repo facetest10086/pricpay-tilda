@@ -48,13 +48,18 @@ PRICPAY_MERCHANT_WEBSITE=https://pricpay-tilda.vercel.app
 GATEWAY_HEALTH_TOKEN=自定义健康检查令牌
 ```
 
-Cashier 模式不需要 `PRICPAY_PUB_ID`。如果之后也要启用普通 `/api/pricpay/create`，再补：
+Cashier 模式不需要 `PRICPAY_PUB_ID`。如果要提前准备指定银行卡方式的 `/api/pricpay/create`，在 Vercel Production 配置：
 
 ```text
-PRICPAY_PUB_ID=PricPay pubId
-PRICPAY_CREATE_MODE=EPP
-PRICPAY_PAYMENT_METHOD=CardEmbed
+PRICPAY_CREATE_MODE=HPP
+PRICPAY_PAYMENT_METHOD=CARD
 ```
+
+保存变量后重新部署，即完成服务端配置；当前 `/cashier` 不发送这两个参数，现有收银台继续工作。需要切换时，只将 Tilda API URL 改为 `https://pricpay-tilda.vercel.app/api/pricpay/create`，保存并发布；切回时恢复 `/api/pricpay/cashier`，备用变量可以保留。T123、客户字段映射、通知密钥、数据库及成功／失败地址沿用原配置。
+
+支付方式与 mode 必须配套。2026-10-21 当前测试商户的只读查询返回 CARD / HPP、CardRussia / HPP、SberPay / HPP，以及 CardEmbed / EPP；正式商户或后续开通结果应重新核对。当前代码为跳转式 HPP 提供上述切换；首次切换仍需用该方式完成测试创单和支付回调验证。
+
+EPP 与 HPP 不同：[PricPay 官方参数说明](https://www.pricpay.com/api/create.html)中的 pubId 来自前置表单，且仅 EPP 必填。当前代码没有自动获取前置表单 pubId 的完整链路，不能仅新增一个固定 PRICPAY_PUB_ID 就宣称 EPP 已可用。HPF 直连还涉及银行卡数据采集，不属于本次备用收银台切换。不要使用旧 PRICPAY_MODE 变量切换路由，路由由 API URL 决定。
 
 可选兜底 URL：
 

@@ -20,7 +20,7 @@ POST /api/tilda/customer-data
 POST /api/pricpay/create
 ```
 
-对应 PricPay `v2/checkout` 创单文档。该接口需要 `PRICPAY_PUB_ID`。
+对应 PricPay `v2/checkout` 创单文档。指定方式的 HPP 收银台不需要 pubId；EPP 嵌入式流程需要前置表单返回的 pubId，当前程序未自动接入该前置流程。
 
 ### 收银台创单
 
@@ -134,13 +134,14 @@ PRICPAY_SECRET=PricPay 签名密钥
 PRICPAY_MERCHANT_WEBSITE=https://你的网关域名
 ```
 
-普通创单还需要：
+指定银行卡方式的 HPP 收银台可预先配置以下两项，之后将 Tilda API URL 从 `/api/pricpay/cashier` 切换为 `/api/pricpay/create`：
 
 ```text
-PRICPAY_PUB_ID=你的 pubId
-PRICPAY_CREATE_MODE=EPP
-PRICPAY_PAYMENT_METHOD=CardEmbed
+PRICPAY_CREATE_MODE=HPP
+PRICPAY_PAYMENT_METHOD=CARD
 ```
+
+两项需要在 Vercel Production 保存并重新部署。它们不改变 `/cashier` 的全量收银台请求。支付方式代码和 mode 必须以商户实际开通列表为准；不要用旧 PRICPAY_MODE 变量切换接口。PRICPAY_PUB_ID 仅保留 EPP 兼容，来源应为前置表单，不是通用静态商户参数；EPP 前置流程尚需单独集成。
 
 Tilda 转发和跳转可通过订单入参传入，也可以用环境变量兜底：
 
