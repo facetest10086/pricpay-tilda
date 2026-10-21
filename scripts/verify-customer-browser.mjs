@@ -69,19 +69,19 @@ try {
   const errors = []
   page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss() })
   page.on('pageerror', (error) => errors.push(error.message))
-  async function checkout(orderId, invalidField, useRequestSubmit = false) {
+  async function checkout(orderId, invalidField, useRequestSubmit = false, scenario = {}) {
     await page.goto(shopOrigin)
     await page.waitForFunction(() => window.__pricpayCustomerBridge)
-    await page.evaluate(({ gatewayOrigin, orderId, invalidField, useRequestSubmit }) => {
+    await page.evaluate(({ gatewayOrigin, orderId, invalidField, useRequestSubmit, scenario }) => {
       const cart = document.getElementById('cart')
       if (invalidField === 'zip') cart.elements.namedItem('zip').value = ''
       if (invalidField === 'customerCountry') cart.elements.namedItem('customerCountry').value = 'unknown country'
-      cart.tildaOrderId = orderId
-      cart.dispatchEvent(new Event('tildaform:aftersuccess', { bubbles: true }))
+      cart.tildaOrderId = scenario.cartOrderId ?? orderId
+      if (!scenario.skipCapture) cart.dispatchEvent(new Event('tildaform:aftersuccess', { bubbles: true }))
       const payment = document.createElement('form')
       payment.method = 'POST'
       payment.action = gatewayOrigin + '/api/pricpay/cashier'
-      for (const [name, value] of Object.entries({ orderid: '38252103:' + orderId, amount: '27596.96', currency: 'RUB',
+      for (const [name, value] of Object.entries({ orderid: scenario.paymentOrderId ?? ('38252103:' + orderId), amount: '27596.96', currency: 'RUB',
         country: 'GB', email: 'buyer@example.test', phone: '+79991234567' })) {
         const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value
         payment.appendChild(input)
@@ -89,7 +89,8 @@ try {
       document.body.appendChild(payment)
       if (useRequestSubmit) payment.requestSubmit()
       else { payment.submit(); payment.submit(); payment.remove() }
-    }, { gatewayOrigin, orderId, invalidField, useRequestSubmit })
+      if (scenario.clearCart) { cart.reset(); cart.tildaOrderId = '0'; cart.remove() }
+    }, { gatewayOrigin, orderId, invalidField, useRequestSubmit, scenario })
   }
   await checkout('10001')
   await page.waitForURL(`${gatewayOrigin}/api/pricpay/cashier`)
@@ -112,9 +113,49 @@ try {
     assert.equal(payments.length, 2)
     assert.equal(page.url(), shopOrigin + '/')
   }
+  const diagnosticKeys = ['version', 'stage', 'successEvents', 'capturedOrders', 'cartOrderFormat',
+    'paymentOrderFormat', 'matched', 'code', 'status', 'field'].sort()
+  for (const [scenario, code] of [
+    [{ skipCapture: true, clearCart: true }, 'ORDER_NOT_CAPTURED'],
+    [{ cartOrderId: '0', clearCart: true }, 'CART_ORDER_MISSING'],
+    [{ paymentOrderId: '', clearCart: true }, 'PAYMENT_ORDER_MISSING'],
+    [{ paymentOrderId: '38252103:99999', clearCart: true }, 'ORDER_NOT_CAPTURED'],
+  ]) {
+    const uploadsBefore = customerResponses.length
+    const dialogsBefore = dialogs.length
+    await checkout('10005', undefined, false, scenario)
+    const diagnostics = await page.evaluate(() => window.__pricpayCustomerDiagnostics)
+    assert.equal(diagnostics.code, code)
+    assert.equal(diagnostics.stage, 'failed')
+    assert.equal(diagnostics.matched, false)
+    assert.deepEqual(Object.keys(diagnostics).sort(), diagnosticKeys)
+    assert.ok(dialogs[dialogsBefore].includes('PD_' + code))
+    assert.equal(customerResponses.length, uploadsBefore)
+    assert.equal(payments.length, 2)
+  }
+  for (const [fixture, code, status] of [
+    [{ status: 503, contentType: 'application/json', body: '{"ok":false}' }, 'UPLOAD_REJECTED', 503],
+    [{ status: 502, contentType: 'text/html', body: 'upstream error' }, 'UPLOAD_RESPONSE', 502],
+    [null, 'UPLOAD_NETWORK', null],
+  ]) {
+    await page.route('**/api/tilda/customer-data', (route) => fixture ? route.fulfill(fixture) : route.abort())
+    const dialogsBefore = dialogs.length
+    await checkout('10006', undefined, false, { clearCart: true })
+    await page.waitForFunction(() => window.__pricpayCustomerDiagnostics.stage === 'failed')
+    const diagnostics = await page.evaluate(() => window.__pricpayCustomerDiagnostics)
+    assert.equal(diagnostics.code, code)
+    assert.equal(diagnostics.status, status)
+    assert.equal(diagnostics.matched, true)
+    assert.equal(diagnostics.capturedOrders, 1)
+    assert.deepEqual(Object.keys(diagnostics).sort(), diagnosticKeys)
+    assert.ok(dialogs[dialogsBefore].includes('PD_' + code))
+    assert.equal(payments.length, 2)
+    await page.unroute('**/api/tilda/customer-data')
+  }
   assert.deepEqual(errors, [])
   console.log('PASS: real desktop/mobile browser, Russian country name -> RU, Cyrillic customer fields, unchanged amount, duplicate-script/submit suppression, localized zip/country errors')
   console.log('Storage and payment HTTP services were local fixtures; no database or real payment was used.')
+  console.log('PASS: missing/mismatched orders, rejected/non-JSON/network responses stop payment; diagnostic codes survive Tilda form cleanup and expose only approved metadata')
 } finally {
   if (browser) await browser.close()
   gateway.closeAllConnections()
