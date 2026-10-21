@@ -8,8 +8,8 @@
 
 | 位置 | 最后确认的状态 | 现在要做什么 |
 |---|---|---|
-| Notify signature | 最后截图已选 Custom rules，但规则框仍是灰色示例，Use uppercase 未勾选 | 填写下面通知签名区块给出的完整规则，并勾选 Use uppercase；如果你已经改好，这项转为待实际通知验证 |
-| 通知签名密钥 | 尚未确认 Tilda 实际验签密钥与 Vercel Production 的 TILDA_NOTIFY_SECRET 已一致 | 采用同一个实际值；使用独立通知密钥框时也填相同值 |
+| Notify signature | 你已确认完整 Custom rules，并提供了勾选 Use uppercase 的新截图 | 保持下方规则，等待新订单验证 |
+| 通知签名密钥 | 你已反馈向 Vercel 提交 TILDA_NOTIFY_SECRET，Tilda 使用独立密钥 | 确保值相同并重新部署；昨天的通知实际用了 PricPay 密钥，不能代表新配置已验证 |
 | 成功／失败页面 | 2026-10-20 上次检查两个目标地址均返回 404，尚未收到发布成功的确认 | 创建并发布 payment-success、payment-failed 两页，再打开网址确认 |
 | 商户身份 | 截图商户号与本地一致，也与 PricPay 官方通知文档的示例商户号相同 | 确认它确实由 PricPay 分配给你；一致并不能证明账号权限有效 |
 | Country | 你决定上方固定值保留 GB；客户国家由脚本传递 | 确认真实 customerCountry 已传入；缺少必需客户数据时停止创单 |
@@ -259,9 +259,11 @@ C20699714DE7CE1E88F2E52D66060C69
 | Notify error answer | 通知处理错误时的应答 | `ERROR` | 大写，保留 |
 | Answers for notify as json | 用 JSON 包装应答 | 不勾选 | 保持纯文本 |
 
-Tilda 返回的 `OK` 是对本网关的应答；本网关对 PricPay 的通常应答为小写 `ok`，这是另一段请求。
+Tilda 返回的 OK 是对本网关的应答；本网关正常处理后对 PricPay 返回小写 ok。新代码要求 Tilda HTTP 2xx 且正文去掉首尾空白后等于 OK，才记录转发成功。HTTP 200 加 Signature not correct. 同样视为拒绝：记录 tilda.notify.rejected、forwardedToTilda=false，订单状态为 tilda_notify_error，并返回 502；网络错误也返回 502。上游是否重试按 PricPay 的实际策略执行。
 
-当前网关仅在 PricPay 通知验签成功且状态为 `100` 时尝试通知 Tilda。`transactionid` 来源于 PricPay 的平台订单号，不能按纯整数截断。
+当前网关仅在 PricPay 通知验签成功、状态为 100 且金额／币种与原订单一致时尝试通知 Tilda。transactionid 来源于 PricPay 的平台订单号，不能按纯整数截断。原始回调 amount 保留在日志中，发给 Tilda 的 amount 使用验证后的主单位金额，并重新计算通知签名。
+
+创单仍发送原金额，不乘除 100。回调 amount 默认按最小单位处理；本店 RUB 的 7263589.00000000 规范化为 72635.89，与数据库原订单核对后才转发。不是根据 Tilda 页面显示猜单位，也不是所有币种一律除以 100。原订单缺失返回 503，金额或币种不符返回 400。Tilda 页面显示的原订单金额正确，不能证明收到的通知金额正确。
 
 ## 11. Form settings：管理员看到的标签和提示
 
@@ -324,7 +326,7 @@ Show field 控制密钥输入框显示，Same for notify signature 控制签名�
 6. 完成测试支付，确认 PricPay 异步通知验签成功，Tilda 后台订单也实际标为已支付。
 7. 查看 Tilda 通知响应状态和正文，不能只依据一次跳转或一条 forwarded 日志判断成功。
 
-当前实现仍有两个已记录限制：Tilda 订单入站签名尚未验证；转发通知后未核验 Tilda 的 HTTP 成功状态或 `OK` 正文。后者导致 `tilda.notify.forwarded`、`forwardedToTilda: true` 只能证明发出请求并收到响应。客户数据脚本与订单关联不代表这些限制已修复。
+当前仍未实现 Tilda 订单入站签名验证。通知金额验证及 Tilda 响应判定已补充：新代码的 tilda.notify.forwarded、forwardedToTilda=true 表示收到 HTTP 2xx 与 OK 正文；旧代码同名日志不能作此保证。昨天的旧订单不会因部署自动补发，本轮测试只使用本地模拟支付端和隔离数据库。
 
 ## 附录：服务器配置和核对依据
 
@@ -336,6 +338,7 @@ Show field 控制密钥输入框显示，Same for notify signature 控制签名�
 | DATABASE_URL_UNPOOLED | 现有 Neon 直连串，供建表等管理操作使用 |
 | PRICPAY_MERCHANT_NO / PRICPAY_SECRET | PricPay 实际商户号和配套密钥 |
 | PRICPAY_MERCHANT_WEBSITE | 核对实际商户网站，对应 PricPay 的 merchantWebsite |
+| PRICPAY_NOTIFY_AMOUNT_UNIT | 可选 minor（默认）或 major，仅决定异步回调 amount 的单位；当前 RUB 通道保持 minor，其他通道先确认单位 |
 | GATEWAY_HEALTH_TOKEN | 现有健康检查令牌 |
 | GATEWAY_DB_TIMEOUT_MS | 当前联调建议显式设 10000；代码默认仍为 1000 |
 | TILDA_NOTIFY_SECRET | 与 Tilda 实际通知验签密钥相同 |
@@ -357,6 +360,7 @@ Show field 控制密钥输入框显示，Same for notify signature 控制签名�
 代码依据：
 
 - [字段转换、商品封装、通知签名](../lib/pricpay.ts)。
+- [精确金额核对与 Tilda 应答判断](../lib/pricpay-notification.ts)。
 - [创单入口及原始订单记录](../lib/pricpay-create-handler.ts)。
 - [PricPay 通知验证与转发](../app/api/pricpay/notify/route.ts)。
 - [健康检查](../app/api/neon/health/route.ts)。

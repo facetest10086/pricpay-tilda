@@ -38,8 +38,13 @@ PricPay 支付通知地址。网关会：
 
 - 校验 PricPay 签名。
 - 保存通知原始参数到 Neon Postgres。
-- 仅在 `orderStatus=100` 时把支付成功通知转发给 Tilda。
-- 对 PricPay 返回纯文本 `ok`。
+- 仅在 orderStatus=100 且回调金额、币种与数据库原订单一致时，将规范化金额重新签名并通知 Tilda。
+- 只有 Tilda 返回 HTTP 2xx 且正文为 OK 才记录转发成功；拒绝或网络错误返回 502，供上游重试。
+- 正常处理返回纯文本 ok；无效签名返回 401，金额／币种不符返回 400，原订单或通知地址不可用返回 503。
+
+创单 transactionAmount 保持主货币单位不变。回调 amount 默认按最小货币单位解释，例如 RUB 的 7263589.00000000 转为 72635.89；先验原始签名，再用整数精确核对原订单，不能用显示金额或自动猜测单位代替验证。transactionAmount 回调字段仍按主单位处理；两个金额字段同时出现时必须都匹配。
+
+可选环境变量 PRICPAY_NOTIFY_AMOUNT_UNIT=minor（默认）或 major，仅控制回调 amount 的单位。当前 RUB 通道已有日志验证 100 倍关系，无需新增该变量即可使用 minor。其他商户通道应先确认回调单位；收到主单位 amount 的通道才显式配置 major。程序按币种精度处理，JPY 等零位小数币种不会统一除以 100。转发 Tilda 的金额按币种精度格式化；原始回调值留在日志中。
 
 ### 同步跳转
 
@@ -151,6 +156,7 @@ TILDA_NOTIFY_SECRET=Tilda 通知签名密钥
 GATEWAY_HEALTH_TOKEN=生产环境 health 接口访问令牌
 GATEWAY_DB_TIMEOUT_MS=1000
 TILDA_SITE_ORIGIN=https://hoteltoiletries.ru
+PRICPAY_NOTIFY_AMOUNT_UNIT=minor
 ```
 
 `GATEWAY_DB_TIMEOUT_MS` 控制日志写库最多等待多久。默认 1000ms；超过后跳过本次数据库日志并写入 Vercel 控制台，避免日志库拖慢支付主流程。

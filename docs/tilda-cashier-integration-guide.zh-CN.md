@@ -1,6 +1,6 @@
 # Tilda 对接 PricPay Cashier 指南
 
-完整的逐项配置请阅读 [Tilda 自定义支付网关设置](tilda-custom-payment-gateway-settings.zh-CN.md)。该文档覆盖字段映射、商品内部字段、运费折扣、订单签名和支付结果通知，并说明当前代码的验签及通知应答判定缺口。
+完整的逐项配置请阅读 [Tilda 自定义支付网关设置](tilda-custom-payment-gateway-settings.zh-CN.md)。该文档覆盖字段映射、商品内部字段、运费折扣、订单签名和支付结果通知，并说明尚未实现的 Tilda 订单入站验签。
 
 客户字段实测不能通过 Additional 的同名固定值读取。现在需要安装 [客户数据 T123 脚本](tilda-customer-data-install.zh-CN.md)，删除七组固定客户字段；Cashier 会在创单前按订单 ID/token 读取真实数据，缺少脚本或数据时不继续创单。
 
@@ -160,11 +160,15 @@ notifyUrl=https://pricpay-tilda.vercel.app/api/pricpay/notify?order=...
 returnUrl=https://pricpay-tilda.vercel.app/api/pricpay/return?order=...
 ```
 
-一般不需要在 PricPay 后台手动覆盖。异步通知以 `orderStatus=100` 作为成功状态，网关收到后会通知 Tilda，并对 PricPay 返回：
+一般不需要在 PricPay 后台手动覆盖。异步通知以 orderStatus=100 作为成功状态；网关先验证原始签名，再按数据库原订单核对金额和币种。回调 amount 默认按最小货币单位转换（RUB 分转卢布），创单金额不变；只有 Tilda 接受通知后才对 PricPay 返回：
 
 ```text
 ok
 ```
+
+Tilda 必须返回 HTTP 2xx 且正文为 OK，才能记录 forwardedToTilda=true。即使 HTTP 200，正文为 Signature not correct. 也会记录 tilda.notify.rejected、订单 tilda_notify_error，并返回 502，保留上游重试机会。重试成功会清除旧错误。原订单不可用或缺少 Tilda 通知地址返回 503，金额／币种不符返回 400，无效签名返回 401 且不修改订单状态。
+
+回调 amount 的单位可用 PRICPAY_NOTIFY_AMOUNT_UNIT=minor（默认）或 major 显式配置；当前 RUB 通道无需额外设置。major 仅在 PricPay 确认该商户回调 amount 已用主单位时使用。Tilda 后台显示的是原订单金额，不能用它判断实际通知中 amount 的单位。
 
 ## 上线验证
 
@@ -233,7 +237,7 @@ redirect_created              已生成 PricPay 跳转
 paid                          PricPay 通知支付成功
 pending                       PricPay 通知处理中
 failed                        PricPay 通知失败
-invalid_notify_signature      PricPay 通知签名不正确
+notify_amount_mismatch        PricPay 回调金额或币种不符，停止转发
 paid_tilda_notify_missing     支付成功但缺少 Tilda notifyUrl
 tilda_notify_error            转发 Tilda 通知失败
 configuration_error           Vercel 环境变量缺失
@@ -241,7 +245,7 @@ configuration_error           Vercel 环境变量缺失
 
 ## 仍需实测的地方
 
-此前已验证 Next.js 路由、构建、Neon 表结构及部分错误响应；本轮另验证了本地字段转换和通知签名示例。真实 cashier 创单、支付和 Tilda 通知验签闭环仍须实际联调确认。当前 `tilda.notify.forwarded` 记录也没有检查 Tilda 的 HTTP 成功状态或 `OK` 正文，需同时查看实际响应及 Tilda 订单状态。
+本地与隔离数据库可验证客户字段、金额换算、签名以及 Tilda 拒绝／重试应答。真实 cashier 创单、支付和 Tilda 通知验签闭环仍须实际联调确认。新代码中的 tilda.notify.forwarded 要求 HTTP 2xx 加 OK 正文；旧代码产生的同名记录没有这一保证，应查看当时的实际响应及 Tilda 订单状态。
 
 正式上线前至少跑一笔 PricPay 测试支付，并确认：
 

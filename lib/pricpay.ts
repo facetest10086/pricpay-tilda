@@ -290,11 +290,10 @@ export async function createPricpayCheckout(order: TildaOrder, requestUrl: strin
 }
 
 export function toTildaNotification(params: Record<string, unknown>, target: string, order: string, amount: string) {
-  const orderid = order || value(params, 'orderNumber', 'orderNo')
-  const paidAmount = amount || value(params, 'transactionAmount', 'amount')
+  if (!order || !amount) throw new Error('Verified order and normalized amount are required for Tilda notification')
   const body: Record<string, unknown> = {
-    orderid,
-    amount: paidAmount,
+    orderid: order,
+    amount,
     paid: 'true',
     transactionid: value(params, 'platformOrderNo', 'orderNo'),
   }

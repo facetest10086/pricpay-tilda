@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { neon } from '@neondatabase/serverless'
@@ -17,8 +17,17 @@ const statements = (await readFile(new URL('../db/schema.sql', import.meta.url),
   .split(/;\s*(?:\r?\n|$)/).map((statement) => statement.trim()).filter(Boolean)
 await sql.transaction(statements.map((statement) => sql.query(statement)))
 const receivedPayments = []
+const receivedNotifications = []
 let gateway
 const upstream = createServer(async (request, response) => {
+  if (request.method === 'POST' && request.url?.startsWith('/tilda-')) {
+    let body = ''
+    for await (const chunk of request) body += chunk
+    receivedNotifications.push(Object.fromEntries(new URLSearchParams(body)))
+    response.statusCode = request.url === '/tilda-http-error' ? 500 : 200
+    response.end(request.url === '/tilda-reject' ? 'Signature not correct.' : 'OK')
+    return
+  }
   if (request.method === 'POST' && request.url === '/upstream') {
     let body = ''
     for await (const chunk of request) body += chunk
@@ -51,6 +60,8 @@ const server = spawn(process.execPath, [require.resolve('next/dist/bin/next'), '
     PRICPAY_MERCHANT_NO: 'TEST_MERCHANT', PRICPAY_SECRET: 'test-only-not-a-real-secret',
     PRICPAY_PUB_ID: 'test', PRICPAY_CASHIER_ENDPOINT: `${shop}/upstream`,
     PRICPAY_CREATE_ENDPOINT: `${shop}/upstream`, PRICPAY_CASHIER_BASE_URL: `${shop}/cashier`,
+    TILDA_NOTIFY_URL: `${shop}/tilda-ok`, TILDA_NOTIFY_SECRET: 'independent-test-tilda-key',
+    PRICPAY_NOTIFY_AMOUNT_UNIT: 'minor',
     TILDA_SITE_ORIGIN: shop, GATEWAY_DB_TIMEOUT_MS: '10000' },
   stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
 })
@@ -114,6 +125,55 @@ try {
   assert.equal(expired.status, 504)
   assert.equal(receivedPayments.length, 2)
   console.log('PASS: real Neon storage, validation, immutable retries, token isolation, late arrival, expiry, cashier merge and unchanged payment amount')
+
+  function callbackSignature(body) {
+    const base = Object.keys(body).filter((key) => key !== 'signature').sort().map((key) => `${key}=${body[key]}`).join('&')
+    return createHash('md5').update(`${base}&secret=test-only-not-a-real-secret`).digest('hex').toUpperCase()
+  }
+  function notify(id, overrides = {}, validSignature = true, queryOverrides = {}) {
+    const body = { merchantNo: 'TEST_MERCHANT', orderNumber: id, platformOrderNo: `TX_TEST_${id}`,
+      orderStatus: '100', amount: '149000.00000000', currency: 'RUB', ...overrides }
+    body.signature = validSignature ? callbackSignature(body) : 'INVALID'
+    const url = new URL(`${gateway}/api/pricpay/notify`)
+    url.searchParams.set('order', id)
+    for (const [key, value] of Object.entries(queryOverrides)) url.searchParams.set(key, value)
+    return fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body),
+    })
+  }
+  const storedStatus = async (id) => (await sql.query('select status, last_error from gateway_orders where tilda_order_id = $1', [id]))[0]
+  assert.equal((await notify(submission.orderId, {}, false)).status, 401)
+  assert.equal((await storedStatus(submission.orderId)).status, 'redirect_created')
+  assert.equal((await notify(submission.orderId, { amount: '1490.00' })).status, 400)
+  assert.equal((await storedStatus(submission.orderId)).status, 'notify_amount_mismatch')
+  assert.equal((await notify(submission.orderId, { currency: 'USD' })).status, 400)
+  assert.equal(receivedNotifications.length, 0)
+  assert.equal((await notify(submission.orderId)).status, 200)
+  assert.equal(receivedNotifications.length, 1)
+  const notification = receivedNotifications[0]
+  assert.equal(notification.amount, '1490.00')
+  const signatureBase = `amount=1490.00&orderid=${submission.orderId}&paid=true&transactionid=TX_TEST_${submission.orderId}&secret=independent-test-tilda-key`
+  assert.equal(notification.signature, createHash('md5').update(signatureBase).digest('hex').toUpperCase())
+  assert.deepEqual(await storedStatus(submission.orderId), { status: 'paid', last_error: null })
+  assert.equal((await notify(orderId('2'), { orderStatus: '103' }, true, { orderNumber: submission.orderId })).status, 200)
+  assert.equal((await storedStatus(submission.orderId)).status, 'paid')
+  assert.equal((await storedStatus(orderId('2'))).status, 'pending')
+  await sql.query('update gateway_orders set tilda_notify_url = $1 where tilda_order_id = $2', [`${shop}/tilda-reject`, orderId('2')])
+  assert.equal((await notify(orderId('2'))).status, 502)
+  assert.equal((await storedStatus(orderId('2'))).status, 'tilda_notify_error')
+  assert.match((await storedStatus(orderId('2'))).last_error, /Signature not correct/)
+  const acceptedRows = await sql.query(`select count(*)::int as total from payment_notifications
+    where tilda_order_id = $1 and forwarded_to_tilda`, [orderId('2')])
+  assert.equal(acceptedRows[0].total, 0)
+  await sql.query('update gateway_orders set tilda_notify_url = $1 where tilda_order_id = $2', [`${shop}/tilda-http-error`, orderId('2')])
+  assert.equal((await notify(orderId('2'))).status, 502)
+  await sql.query('update gateway_orders set tilda_notify_url = $1 where tilda_order_id = $2', [`${shop}/tilda-ok`, orderId('2')])
+  assert.equal((await notify(orderId('2'))).status, 200)
+  assert.deepEqual(await storedStatus(orderId('2')), { status: 'paid', last_error: null })
+  const countBeforeUnknown = receivedNotifications.length
+  assert.equal((await notify(orderId('999'))).status, 503)
+  assert.equal(receivedNotifications.length, countBeforeUnknown)
+  console.log('PASS: callback signature before conversion, exact amount/currency checks, corrected independently signed Tilda amount, HTTP-200 rejection, retry recovery, and no false forwarded flag')
 
   if (process.env.PLAYWRIGHT_MODULE_PATH) {
     const { chromium } = await import(process.env.PLAYWRIGHT_MODULE_PATH)

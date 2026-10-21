@@ -384,7 +384,7 @@ export async function updateGatewayOrder(orderId: string | undefined, update: Ga
             pricpay_redirect_url = coalesce(${nullableText(update.pricpayRedirectUrl)}, pricpay_redirect_url),
             pricpay_request = coalesce(${update.pricpayRequest === undefined ? null : nullableJson(update.pricpayRequest)}::jsonb, pricpay_request),
             pricpay_response = coalesce(${update.pricpayResponse === undefined ? null : nullableJson(update.pricpayResponse)}::jsonb, pricpay_response),
-            last_error = coalesce(${nullableText(update.lastError)}, last_error),
+            last_error = case when ${update.lastError !== undefined} then ${nullableText(update.lastError)} else last_error end,
             updated_at = now()
           where id = ${orderId}
           returning *
