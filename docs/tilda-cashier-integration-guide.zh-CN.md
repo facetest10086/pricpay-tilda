@@ -45,8 +45,13 @@ DATABASE_URL_UNPOOLED=Neon unpooled connection string
 PRICPAY_MERCHANT_NO=PricPay merchantNo
 PRICPAY_SECRET=PricPay signature secret
 PRICPAY_MERCHANT_WEBSITE=https://pricpay-tilda.vercel.app
+TILDA_SITE_ORIGIN=https://hoteltoiletries.ru
 GATEWAY_HEALTH_TOKEN=自定义健康检查令牌
 ```
+
+TILDA_SITE_ORIGIN 是商户域名：Cashier 和指定方式创单都将该值发送为 PricPay 的 merchantWebsite，同时用于客户数据来源校验和返回商店地址。PRICPAY_MERCHANT_WEBSITE 按本项目约定保留为网关公开服务地址，用于生成 /api/pricpay/notify 和 /api/pricpay/return；未配置时使用当前请求域名。两个域名不要互相替代。
+
+迁移网关时，更新 PRICPAY_MERCHANT_WEBSITE、Tilda API URL 和 T123 脚本地址，再部署、发布；商户网站没有迁移时保留 TILDA_SITE_ORIGIN。新订单采用新回调地址，已创建订单的回调地址不会自动改写。
 
 Cashier 模式不需要 `PRICPAY_PUB_ID`。如果要提前准备指定银行卡方式的 `/api/pricpay/create`，在 Vercel Production 配置：
 

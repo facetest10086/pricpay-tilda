@@ -59,6 +59,7 @@ const server = spawn(process.execPath, [require.resolve('next/dist/bin/next'), '
   env: { ...process.env, DATABASE_URL: databaseUrl, DATABASE_URL_UNPOOLED: databaseUrl,
     PRICPAY_MERCHANT_NO: 'TEST_MERCHANT', PRICPAY_SECRET: 'test-only-not-a-real-secret',
     PRICPAY_PUB_ID: 'test', PRICPAY_CASHIER_ENDPOINT: `${shop}/upstream`,
+    PRICPAY_MERCHANT_WEBSITE: gateway,
     PRICPAY_CREATE_ENDPOINT: `${shop}/upstream`, PRICPAY_CASHIER_BASE_URL: `${shop}/cashier`,
     TILDA_NOTIFY_URL: `${shop}/tilda-ok`, TILDA_NOTIFY_SECRET: 'independent-test-tilda-key',
     TILDA_SUCCESS_URL: `${shop}/payment-success`, TILDA_FAILURE_URL: `${shop}/payment-failed`, TILDA_PENDING_URL: '',

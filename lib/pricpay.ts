@@ -10,6 +10,7 @@ type PricpayConfig = {
   createMode: string
   paymentMethodCode: string
   website: string
+  gatewayOrigin: string
   createEndpoint: string
   cashierEndpoint: string
   cashierBaseUrl: string
@@ -57,7 +58,8 @@ const config: PricpayConfig = {
   pubId: process.env.PRICPAY_PUB_ID ?? '',
   createMode: process.env.PRICPAY_CREATE_MODE ?? (process.env.PRICPAY_MODE?.toUpperCase() === 'HPP' ? 'EPP' : process.env.PRICPAY_MODE ?? 'EPP'),
   paymentMethodCode: process.env.PRICPAY_PAYMENT_METHOD ?? 'CardEmbed',
-  website: process.env.PRICPAY_MERCHANT_WEBSITE ?? '',
+  website: process.env.TILDA_SITE_ORIGIN ?? 'https://hoteltoiletries.ru',
+  gatewayOrigin: process.env.PRICPAY_MERCHANT_WEBSITE ?? '',
   createEndpoint: process.env.PRICPAY_CREATE_ENDPOINT ?? defaultCreateEndpoint,
   cashierEndpoint: process.env.PRICPAY_CASHIER_ENDPOINT ?? defaultCashierEndpoint,
   cashierBaseUrl: process.env.PRICPAY_CASHIER_BASE_URL ?? defaultCashierBaseUrl,
@@ -158,13 +160,13 @@ export function getTildaGatewayUrls(order: TildaOrder): TildaGatewayUrls {
 }
 
 export function buildGatewayNotifyUrl(requestUrl: string, orderNumber: string) {
-  const url = new URL('/api/pricpay/notify', requestUrl)
+  const url = new URL('/api/pricpay/notify', config.gatewayOrigin || requestUrl)
   if (orderNumber) url.searchParams.set('order', orderNumber)
   return url.toString()
 }
 
 export function buildGatewayReturnUrl(requestUrl: string, orderNumber: string) {
-  const url = new URL('/api/pricpay/return', requestUrl)
+  const url = new URL('/api/pricpay/return', config.gatewayOrigin || requestUrl)
   if (orderNumber) url.searchParams.set('order', orderNumber)
   return url.toString()
 }
@@ -181,7 +183,7 @@ function buildPricpayOrder(order: TildaOrder, requestUrl: string, mode: PricpayC
     merchantNo: config.merchantNo,
     merchantOrderDate: merchantOrderDate(order),
     orderNumber,
-    merchantWebsite: config.website || new URL(requestUrl).origin,
+    merchantWebsite: config.website,
     transactionAmount: amount,
     transactionCurrency: currency,
     notifyUrl,

@@ -134,6 +134,8 @@ PRICPAY_SECRET=PricPay 签名密钥
 PRICPAY_MERCHANT_WEBSITE=https://你的网关域名
 ```
 
+PRICPAY_MERCHANT_WEBSITE 表示本网关的公开服务地址，用于生成 PricPay 的 notifyUrl、returnUrl；未配置时使用当前请求域名。TILDA_SITE_ORIGIN 表示商户独立站域名，两种创单接口均将它作为 merchantWebsite 发给 PricPay。网关迁移时更新前者，商户域名只在店铺迁移时更新。
+
 指定银行卡方式的 HPP 收银台可预先配置以下两项，之后将 Tilda API URL 从 `/api/pricpay/cashier` 切换为 `/api/pricpay/create`：
 
 ```text

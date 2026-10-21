@@ -339,12 +339,12 @@ Show field 控制密钥输入框显示，Same for notify signature 控制签名�
 | DATABASE_URL | 现有 Neon pooled 连接串 |
 | DATABASE_URL_UNPOOLED | 现有 Neon 直连串，供建表等管理操作使用 |
 | PRICPAY_MERCHANT_NO / PRICPAY_SECRET | PricPay 实际商户号和配套密钥 |
-| PRICPAY_MERCHANT_WEBSITE | 核对实际商户网站，对应 PricPay 的 merchantWebsite |
+| PRICPAY_MERCHANT_WEBSITE | 网关公开服务地址，例如 https://pricpay-tilda.vercel.app；用于生成通知与返回接口地址，网关迁移时更新 |
 | PRICPAY_NOTIFY_AMOUNT_UNIT | 可选 minor（默认）或 major，仅决定异步回调 amount 的单位；当前 RUB 通道保持 minor，其他通道先确认单位 |
 | GATEWAY_HEALTH_TOKEN | 现有健康检查令牌 |
 | GATEWAY_DB_TIMEOUT_MS | 当前联调建议显式设 10000；代码默认仍为 1000 |
 | TILDA_NOTIFY_SECRET | 与 Tilda 实际通知验签密钥相同 |
-| TILDA_SITE_ORIGIN | 客户数据来源 origin，默认 https://hoteltoiletries.ru，无末尾斜杠 |
+| TILDA_SITE_ORIGIN | 商户独立站 origin，发给 PricPay 的 merchantWebsite，同时用于客户数据来源校验和返回商店；默认 https://hoteltoiletries.ru，无末尾斜杠 |
 | TILDA_NOTIFY_URL | 可选兜底；真实订单的 notifyUrl 优先 |
 | TILDA_SUCCESS_URL / TILDA_FAILURE_URL / TILDA_PENDING_URL | 对应店铺返回页的可选兜底 |
 
