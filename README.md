@@ -12,6 +12,8 @@ POST /api/tilda/customer-data
 
 接收购物车脚本发送的真实客户信息，以完整订单 ID 和随机 token 哈希关联。Cashier 和普通创单均须先取得这份数据；缺失时停止创单。部署后还须按 [T123 安装步骤](docs/tilda-customer-data-install.zh-CN.md) 在 Tilda 加入脚本，并删除 Additional 中七组同名固定客户字段。
 
+国家输入支持 RU，以及 Россия、Российская Федерация、РФ、Russia、Russian Federation、RUS 这些明确的俄罗斯名称，统一转成 RU。其他国家仍使用两位代码。校验错误响应会包含 field；脚本用对应的俄文字段标题提示买家，服务器日志只记录字段名和状态码，不记录失败输入值。
+
 ### 普通创单
 
 ```text

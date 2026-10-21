@@ -15,11 +15,13 @@ export type CustomerFields = {
 
 export class CustomerDataError extends Error {
   status: number
+  field?: keyof CustomerFields
 
-  constructor(message: string, status = 400) {
+  constructor(message: string, status = 400, field?: keyof CustomerFields) {
     super(message)
     this.name = 'CustomerDataError'
     this.status = status
+    this.field = field
   }
 }
 
@@ -35,15 +37,29 @@ function objectFields(input: unknown): Record<string, unknown> {
   return input as Record<string, unknown>
 }
 
-function customerText(input: Record<string, unknown>, key: string, required = true, maxLength = 200) {
+function customerText(input: Record<string, unknown>, key: keyof CustomerFields, required = true, maxLength = 200) {
   const raw = input[key]
   const text = typeof raw === 'string' ? raw.trim() : ''
   const value = key === 'address' ? text.replace(/\r\n?|\n/g, ', ') : text
   if ((required && !value) || (raw !== undefined && typeof raw !== 'string') ||
       value.length > maxLength || /[\u0000-\u001f\u007f]/.test(value) || value.toLowerCase() === key.toLowerCase()) {
-    throw new CustomerDataError(`Invalid customer field: ${key}`)
+    throw new CustomerDataError(`Invalid customer field: ${key}`, 400, key)
   }
   return value
+}
+
+const russianCountryNames = new Set([
+  'RUS', 'RUSSIA', 'RUSSIAN FEDERATION',
+  '\u0420\u041e\u0421\u0421\u0418\u042f',
+  '\u0420\u041e\u0421\u0421\u0418\u0419\u0421\u041a\u0410\u042f \u0424\u0415\u0414\u0415\u0420\u0410\u0426\u0418\u042f',
+  '\u0420\u0424',
+])
+
+function customerCountry(fields: Record<string, unknown>) {
+  const input = customerText(fields, 'customerCountry').toUpperCase()
+  const country = russianCountryNames.has(input) ? 'RU' : input
+  if (!/^[A-Z]{2}$/.test(country)) throw new CustomerDataError('Invalid customer field: customerCountry', 400, 'customerCountry')
+  return country
 }
 
 export function parseCustomerFields(input: unknown): CustomerFields {
@@ -51,7 +67,7 @@ export function parseCustomerFields(input: unknown): CustomerFields {
   const customer = {
     firstName: customerText(fields, 'firstName'),
     lastName: customerText(fields, 'lastName'),
-    customerCountry: customerText(fields, 'customerCountry').toUpperCase(),
+    customerCountry: customerCountry(fields),
     state: customerText(fields, 'state', false),
     city: customerText(fields, 'city'),
     address: customerText(fields, 'address', true, 500),
@@ -59,10 +75,9 @@ export function parseCustomerFields(input: unknown): CustomerFields {
     email: customerText(fields, 'email', true, 254),
     phone: customerText(fields, 'phone', true, 64),
   }
-  if (!/^[A-Z]{2}$/.test(customer.customerCountry)) throw new CustomerDataError('Invalid customer field: customerCountry')
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) throw new CustomerDataError('Invalid customer field: email')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) throw new CustomerDataError('Invalid customer field: email', 400, 'email')
   if (!/^\+?[\d\s().-]+$/.test(customer.phone) || !/^\d{7,20}$/.test(customer.phone.replace(/\D/g, ''))) {
-    throw new CustomerDataError('Invalid customer field: phone')
+    throw new CustomerDataError('Invalid customer field: phone', 400, 'phone')
   }
   return customer
 }

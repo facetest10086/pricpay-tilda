@@ -54,7 +54,10 @@ export async function POST(request: Request) {
     }
     return response(request, { ok: true })
   } catch (error) {
-    if (error instanceof CustomerDataError) return response(request, { ok: false, error: error.message }, error.status)
+    if (error instanceof CustomerDataError) {
+      console.warn('Tilda customer data validation failed', { status: error.status, field: error.field })
+      return response(request, { ok: false, error: error.message, field: error.field }, error.status)
+    }
     console.error('Tilda customer data storage failed')
     return response(request, { ok: false, error: 'Unable to save customer data. Please retry checkout.' }, 503)
   }

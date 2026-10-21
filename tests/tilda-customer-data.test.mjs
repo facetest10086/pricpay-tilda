@@ -21,6 +21,24 @@ test('normalizes a real form submission and rejects placeholder values', () => {
   }
 })
 
+for (const country of ['\u0420\u043e\u0441\u0441\u0438\u044f', ' \u0420\u041e\u0421\u0421\u0418\u042f ', '\u0420\u043e\u0441\u0441\u0438\u0439\u0441\u043a\u0430\u044f \u0424\u0435\u0434\u0435\u0440\u0430\u0446\u0438\u044f', '\u0420\u0424', 'Russia', 'Russian Federation', 'RUS']) {
+  test(`Russian country input ${JSON.stringify(country)} is sent as RU`, () => {
+    const submission = parseCustomerSubmission({ orderId: '38252103:123', token,
+      customer: { ...customer, customerCountry: country } })
+    assert.equal(submission.customer.customerCountry, 'RU')
+  })
+}
+
+test('invalid customer inputs identify the field without guessing an unknown country', () => {
+  for (const [field, value] of [['customerCountry', 'unknown country'], ['zip', ''], ['email', 'invalid'], ['phone', 'invalid']]) {
+    assert.throws(() => parseCustomerSubmission({ orderId: '38252103:123', token,
+      customer: { ...customer, [field]: value } }), (error) => error.status === 400 && error.field === field)
+  }
+  const unchanged = parseCustomerSubmission({ orderId: '38252103:123', token,
+    customer: { ...customer, customerCountry: 'GB' } })
+  assert.equal(unchanged.customer.customerCountry, 'GB')
+})
+
 test('rejects malformed IDs and missing correlation tokens', () => {
   for (const orderId of ['123', '0:123', '38252103:0', '../orders']) {
     assert.throws(() => parseCustomerSubmission({ orderId, token, customer }), /order ID/)

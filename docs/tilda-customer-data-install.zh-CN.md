@@ -16,7 +16,7 @@ Additional 的齿轮控制后台显示、只读、必填和文案；它没有在
 |---|---|---|
 | 名 | `firstName` | 必填，不填完整姓名代替名 |
 | 姓 | `lastName` | 必填 |
-| 国家 | `customerCountry` | 必填，两位代码，如 RU；不是 Russia 等全称 |
+| 国家 | `customerCountry` | 必填；RU 或 Россия、Russia 等明确的俄罗斯名称会归一化为 RU；其他国家使用两位代码 |
 | 地区 | `state` | 可空，有实际地区时填写 |
 | 城市 | `city` | 必填 |
 | 详细地址 | `address` | 必填，换行会合并为一行账单地址 |
@@ -67,12 +67,16 @@ Additional 的齿轮控制后台显示、只读、必填和文案；它没有在
 | 现象 | 检查内容 |
 |---|---|
 | Missing or invalid customer data token | T123 是否在实际结账页面加载，订单号映射是否仍为项目 ID:订单号 |
-| Invalid customer field | 对应购物车字段是否有真实值，国家是否为两位代码，是否残留变量名占位文字 |
+| Invalid customer field | 对应购物车字段是否有真实值，是否残留变量名占位文字；接口还会返回 field，页面会显示对应俄文字段名 |
 | 403 Origin is not allowed | 已发布页面域名是否与 TILDA_SITE_ORIGIN 完全一致 |
 | 503 保存或读取失败 | 数据库配置、建表权限或临时连接问题；不会继续创单 |
 | 504 Customer data did not arrive | 数据与支付 POST 的订单 ID/token 是否一致，是否已经超过 30 分钟 |
-| 俄文提示无法传递订单数据 | 付款尚未放行；检查购物车字段后刷新并重新提交，不代表已经扣款 |
+| 俄文提示检查某个字段 | 付款尚未放行；按提示检查邮编、国家等字段后刷新并重新提交，不代表已经扣款 |
+
+国家是自由文本输入框时，客户可以填写 Россия、Российская Федерация、РФ、Russia、Russian Federation、RUS 或 RU，程序会明确转换为 RU；不根据站点域名猜测未知国家。未知国家名称仍会被拒绝，并提示检查 Страна。现有 T123 代码行无需更换，部署后刷新已发布页面即可加载新脚本。
 
 本地单元测试：`npm test`。真实数据库联调：先构建，再将 TEST_DATABASE_URL 指向隔离测试分支运行 `npm run test:customer-flow`。该脚本启动本地网关和模拟支付端，不能使用生产数据库。设置 PLAYWRIGHT_MODULE_PATH 指向已安装的 Playwright 模块可附加浏览器验证；PLAYWRIGHT_BROWSER_CHANNEL 可选择本机浏览器 channel，如 msedge。
+
+无需数据库的浏览器回归可运行 `npm run test:customer-browser`，需要已安装的 Playwright 与浏览器，也支持上述模块路径和 channel 变量。它使用真实字段校验和脚本，但客户存储与支付 HTTP 服务是本地测试替身，不代表已完成真实数据库或 PricPay 支付验证。
 
 官方依据：[购物车提交后、付款前的脚本事件](https://help.tilda.cc/tips/javascript)、[T123 嵌入 HTML](https://help.tilda.cc/html)。原生提交包装还覆盖了不触发 submit 事件的 form.submit()，并仅针对本站支付入口。

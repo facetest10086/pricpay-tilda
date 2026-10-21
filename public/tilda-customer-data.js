@@ -58,14 +58,33 @@
       signal: controller.signal,
       body: JSON.stringify({ orderId: orderId, token: entry.token, customer: entry.customer })
     }).then(function (response) {
-      if (!response.ok) throw new Error('Customer data was not accepted');
-      return response.json();
-    }).then(function (body) {
-      if (!body.ok) throw new Error('Customer data was not saved');
+      return response.json().then(function (body) {
+        if (!response.ok || !body || body.ok !== true) {
+          var error = new Error('Customer data was not accepted');
+          if (body && Object.prototype.hasOwnProperty.call(customerFieldTitles, body.field)) {
+            error.checkoutMessage = '\u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u043b\u0435 \u00ab' + customerFieldTitles[body.field] + '\u00bb. ' +
+              (body.field === 'customerCountry' ? '\u0414\u043b\u044f \u0420\u043e\u0441\u0441\u0438\u0438 \u043c\u043e\u0436\u043d\u043e \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u00ab\u0420\u043e\u0441\u0441\u0438\u044f\u00bb \u0438\u043b\u0438 RU. ' : '') + '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0438 \u043e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0437\u0430\u043a\u0430\u0437 \u0441\u043d\u043e\u0432\u0430.';
+          }
+          throw error;
+        }
+      });
     }).finally(function () { clearTimeout(timeout); });
   }
 
-  function reportFailure() {
+  var customerFieldTitles = {
+    firstName: '\u0418\u043c\u044f',
+    lastName: '\u0424\u0430\u043c\u0438\u043b\u0438\u044f',
+    customerCountry: '\u0421\u0442\u0440\u0430\u043d\u0430',
+    state: '\u0420\u0435\u0433\u0438\u043e\u043d',
+    city: '\u0413\u043e\u0440\u043e\u0434',
+    address: '\u0410\u0434\u0440\u0435\u0441',
+    zip: '\u041f\u043e\u0447\u0442\u043e\u0432\u044b\u0439 \u0438\u043d\u0434\u0435\u043a\u0441',
+    email: 'Email',
+    phone: '\u0422\u0435\u043b\u0435\u0444\u043e\u043d'
+  };
+
+  function reportFailure(error) {
+    if (error && error.checkoutMessage) { window.alert(error.checkoutMessage); return; }
     window.alert('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u0435\u0440\u0435\u0434\u0430\u0442\u044c \u0434\u0430\u043d\u043d\u044b\u0435 \u0437\u0430\u043a\u0430\u0437\u0430. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u043b\u044f \u043a\u043e\u0440\u0437\u0438\u043d\u044b, \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0438 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0441\u043d\u043e\u0432\u0430.');
   }
 
@@ -92,10 +111,10 @@
     entry.ready.then(function () {
       document.body.appendChild(paymentForm);
       nativeSubmit.call(paymentForm);
-    }).catch(function () {
+    }).catch(function (error) {
       entry.submitted = false;
       entry.ready = null;
-      reportFailure();
+      reportFailure(error);
     });
   }
 

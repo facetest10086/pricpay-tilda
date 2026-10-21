@@ -7,6 +7,7 @@
     "dev": "next dev",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:customer-flow": "node --experimental-strip-types scripts/verify-customer-flow.mjs",
+    "test:customer-browser": "node --experimental-strip-types scripts/verify-customer-browser.mjs",
     "db:schema": "node --env-file=.env.local scripts/apply-schema.mjs",
     "build": "next build",
     "start": "next start"

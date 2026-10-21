@@ -39,7 +39,7 @@ const upstream = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'text/html; charset=utf-8')
     response.end(`<div id="allrecords" data-tilda-project-id="38252103"></div>
       <form id="cart"><input name="firstName" value="Ivan"><input name="lastName" value="Ivanov">
-      <input name="customerCountry" value="RU"><input name="state" value="Moscow Oblast">
+      <input name="customerCountry" value="\u0420\u043e\u0441\u0441\u0438\u044f"><input name="state" value="Moscow Oblast">
       <input name="city" value="Moscow"><input name="address" value="Example Street 12">
       <input name="zip" value="001234"><input name="Email" value="buyer@example.test">
       <input name="Phone" value="+79991234567"></form>
@@ -96,7 +96,9 @@ try {
   const submission = { orderId: orderId('1'), token, customer }
   assert.equal((await postCustomer(submission, 'https://untrusted.example')).status, 403)
   assert.equal((await postCustomer('x'.repeat(9000))).status, 413)
-  assert.equal((await postCustomer({ ...submission, customer: { ...customer, lastName: 'lastName' } })).status, 400)
+  const invalidCustomer = await postCustomer({ ...submission, customer: { ...customer, lastName: 'lastName' } })
+  assert.equal(invalidCustomer.status, 400)
+  assert.equal((await invalidCustomer.json()).field, 'lastName')
   assert.equal((await postCustomer(submission)).status, 200)
   assert.equal((await postCustomer(submission)).status, 200)
   assert.equal((await postCustomer({ ...submission, customer: { ...customer, address: 'Changed address' } })).status, 409)
@@ -190,7 +192,8 @@ try {
         const cart = document.getElementById('cart')
         cart.tildaOrderId = id.split(':')[1]
         cart.tildaTranId = '38252103:999'
-        if (invalid) cart.elements.namedItem('zip').value = ''
+        if (invalid === 'country') cart.elements.namedItem('customerCountry').value = 'unknown country'
+        else if (invalid) cart.elements.namedItem('zip').value = ''
         cart.dispatchEvent(new Event('tildaform:aftersuccess', { bubbles: true }))
         const payment = document.createElement('form')
         payment.method = 'POST'
@@ -210,6 +213,7 @@ try {
     await page.waitForURL(`${shop}/cashier?cashier=fixture-token`)
     assert.equal(receivedPayments.length, 3)
     assert.equal(receivedPayments.at(-1).billingLastName, 'Ivanov')
+    assert.equal(receivedPayments.at(-1).billingCountry, 'RU')
     await page.setViewportSize({ width: 390, height: 844 })
     await browserPayment('4', true)
     await page.waitForURL(`${shop}/cashier?cashier=fixture-token`)
@@ -218,8 +222,14 @@ try {
     await page.waitForFunction(() => document.getElementById('cart'))
     for (let attempt = 0; attempt < 100 && dialogs.length === 0; attempt++) await delay(100)
     assert.equal(dialogs.length, 1)
+    assert.match(dialogs[0], /\u041f\u043e\u0447\u0442\u043e\u0432\u044b\u0439 \u0438\u043d\u0434\u0435\u043a\u0441/)
     assert.equal(receivedPayments.length, 4)
     assert.equal(page.url(), `${shop}/shop`)
+    await browserPayment('6', false, 'country')
+    for (let attempt = 0; attempt < 100 && dialogs.length < 2; attempt++) await delay(100)
+    assert.equal(dialogs.length, 2)
+    assert.match(dialogs[1], /\u0421\u0442\u0440\u0430\u043d\u0430/)
+    assert.equal(receivedPayments.length, 4)
     await page.goto(`${shop}/shop`)
     await page.waitForFunction(() => window.__pricpayCustomerBridge)
     await page.evaluate((shop) => {
@@ -228,7 +238,7 @@ try {
     }, shop)
     await page.waitForURL(`${shop}/other`)
     assert.deepEqual(scriptErrors, [])
-    console.log('PASS: Chromium desktop/mobile native submit and requestSubmit, CORS, duplicate suppression, invalid-data blocking, unrelated form passthrough')
+    console.log('PASS: Chromium desktop/mobile Russian country-name submission, native submit and requestSubmit, CORS, duplicate suppression, localized field errors, unrelated form passthrough')
   }
 } finally {
   if (browser) await browser.close()
