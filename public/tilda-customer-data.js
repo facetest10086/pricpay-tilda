@@ -9,7 +9,7 @@
   var nativeSubmit = HTMLFormElement.prototype.submit;
   window.__pricpayCustomerBridge = true;
   var diagnostics = window.__pricpayCustomerDiagnostics = {
-    version: '2026-10-21.2', stage: 'ready', successEvents: 0, capturedOrders: 0,
+    version: '2026-10-21.3', stage: 'ready', successEvents: 0, capturedOrders: 0,
     cartOrderFormat: 'not-seen', paymentOrderFormat: 'not-seen', matched: false,
     code: null, status: null, field: null
   };
@@ -87,7 +87,8 @@
     var controller = new AbortController();
     var timeout = setTimeout(function () { controller.abort(); }, 10000);
     return fetch(gateway + '/api/tilda/customer-data', {
-      method: 'POST', credentials: 'omit', keepalive: true,
+      // Navigation waits for this response, so the upload does not need the shared keepalive budget.
+      method: 'POST', credentials: 'omit',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       signal: controller.signal,
       body: JSON.stringify({ orderId: orderId, token: entry.token, customer: entry.customer })

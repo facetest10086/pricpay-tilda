@@ -12,6 +12,7 @@ const bridgeScript = await readFile(new URL('../public/tilda-customer-data.js', 
 const customers = new Map()
 const payments = []
 const customerResponses = []
+const heldKeepalives = new Set()
 let shopOrigin
 const gateway = createServer(async (request, response) => {
   if (request.url === '/tilda-customer-data.js') {
@@ -21,6 +22,11 @@ const gateway = createServer(async (request, response) => {
   }
   let body = ''
   for await (const chunk of request) body += chunk
+  if (request.url === '/keepalive-fixture') {
+    heldKeepalives.add(response)
+    response.on('close', () => heldKeepalives.delete(response))
+    return
+  }
   if (request.url === '/api/tilda/customer-data') {
     assert.equal(request.headers.origin, shopOrigin)
     response.setHeader('Access-Control-Allow-Origin', shopOrigin)
@@ -74,6 +80,11 @@ try {
     await page.goto(shopOrigin)
     await page.waitForFunction(() => window.__pricpayCustomerBridge)
     await page.evaluate(({ gatewayOrigin, orderId, invalidField, useRequestSubmit, scenario }) => {
+      if (scenario.occupyKeepalive) {
+        void fetch(gatewayOrigin + '/keepalive-fixture', {
+          method: 'POST', mode: 'no-cors', keepalive: true, body: 'x'.repeat(65536),
+        }).catch(() => {})
+      }
       const cart = document.getElementById('cart')
       if (invalidField === 'zip') cart.elements.namedItem('zip').value = ''
       if (invalidField === 'customerCountry') cart.elements.namedItem('customerCountry').value = 'unknown country'
@@ -167,12 +178,25 @@ try {
     assert.equal(payments.length, 4)
     await page.unroute('**/api/tilda/customer-data')
   }
+  await page.route('**/api/tilda/customer-data', async (route) => { await delay(1200); await route.continue() })
+  const paymentsBeforeSlowUpload = payments.length
+  await checkout('10007', undefined, false, { occupyKeepalive: true, clearCart: true })
+  assert.equal(payments.length, paymentsBeforeSlowUpload)
+  await page.waitForURL(`${gatewayOrigin}/api/pricpay/cashier`, { timeout: 5000 })
+  assert.equal(payments.length, paymentsBeforeSlowUpload + 1)
+  assert.equal(payments.at(-1).billingZip, '101000')
+  assert.equal(payments.at(-1).transactionAmount, '27596.96')
+  assert.ok(heldKeepalives.size > 0)
+  for (const response of heldKeepalives) response.end('released')
+  await page.unroute('**/api/tilda/customer-data')
   assert.deepEqual(errors, [])
   console.log('PASS: real desktop/mobile browser, Russian country name -> RU, Cyrillic customer fields, unchanged amount, duplicate-script/submit suppression, localized zip/country errors')
   console.log('Storage and payment HTTP services were local fixtures; no database or real payment was used.')
   console.log('PASS: missing/mismatched orders, rejected/non-JSON/network responses stop payment; diagnostic codes survive Tilda form cleanup and expose only approved metadata')
   console.log('PASS: Tilda TYYYYMM-order references join exact project:order payment forms on both endpoints; other orders/projects remain blocked')
+  console.log('PASS: upload completes with the keepalive budget occupied and cart removed; delayed upload acknowledgement still gates payment')
 } finally {
+  for (const response of heldKeepalives) response.end('released')
   if (browser) await browser.close()
   gateway.closeAllConnections()
   shop.closeAllConnections()
